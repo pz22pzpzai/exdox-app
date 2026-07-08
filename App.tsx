@@ -62,6 +62,7 @@ type MainTab = 'costs' | 'sales' | 'claims' | 'more';
 type MoreSheetTarget = 'menu' | 'capture_actions';
 
 const brandLogo = require('./assets/exdox-logo.png');
+const brandMark = require('./assets/exdox-mark.png');
 const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
 
@@ -182,7 +183,7 @@ export default function App() {
   const hasRestoredStateRef = useRef(false);
   const [appState, setAppState] = useState<AppState>(seedState);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
   const [authFullName, setAuthFullName] = useState('');
   const [authOrganisationName, setAuthOrganisationName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
@@ -300,6 +301,16 @@ export default function App() {
   });
 
   const submitAuth = useEffectEvent(async () => {
+    if (authMode === 'reset') {
+      Alert.alert(
+        'Password reset',
+        authEmail
+          ? 'Reset email delivery is not connected yet. Ask your Exdox administrator to reset your access for now.'
+          : 'Enter your email address first so we know which account needs access help.',
+      );
+      return;
+    }
+
     setAuthBusy(true);
     try {
       const session =
@@ -969,7 +980,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.loadingScreen}>
         <StatusBar style="dark" />
-        <ActivityIndicator size="large" color={colors.royalBlue} />
+        <Image source={brandMark} resizeMode="contain" style={styles.loadingLogo} />
         <Text style={styles.loadingText}>Preparing your workspace...</Text>
       </SafeAreaView>
     );
@@ -987,6 +998,8 @@ export default function App() {
           password={authPassword}
           busy={authBusy}
           onChangeMode={setAuthMode}
+          onOpenReset={() => setAuthMode('reset')}
+          onBackToLogin={() => setAuthMode('login')}
           onChangeFullName={setAuthFullName}
           onChangeOrganisationName={setAuthOrganisationName}
           onChangeEmail={setAuthEmail}
@@ -1174,9 +1187,12 @@ function TopHeader({
 }) {
   return (
     <View style={styles.header}>
-      <View>
-        <Text style={styles.headerTitle}>{title}</Text>
-        <Text style={styles.headerSubtitle}>{subtitle}</Text>
+      <View style={styles.headerBrandBlock}>
+        <Image source={brandMark} resizeMode="contain" style={styles.headerBrandMark} />
+        <View>
+          <Text style={styles.headerTitle}>{title}</Text>
+          <Text style={styles.headerSubtitle}>{subtitle}</Text>
+        </View>
       </View>
       <View style={styles.headerActions}>
         <Ionicons name="notifications-outline" size={24} color={colors.nearBlack} />
@@ -1347,19 +1363,23 @@ function AuthScreen({
   password,
   busy,
   onChangeMode,
+  onOpenReset,
+  onBackToLogin,
   onChangeFullName,
   onChangeOrganisationName,
   onChangeEmail,
   onChangePassword,
   onSubmit,
 }: {
-  mode: 'login' | 'register';
+  mode: 'login' | 'register' | 'reset';
   fullName: string;
   organisationName: string;
   email: string;
   password: string;
   busy: boolean;
-  onChangeMode: (mode: 'login' | 'register') => void;
+  onChangeMode: (mode: 'login' | 'register' | 'reset') => void;
+  onOpenReset: () => void;
+  onBackToLogin: () => void;
   onChangeFullName: (value: string) => void;
   onChangeOrganisationName: (value: string) => void;
   onChangeEmail: (value: string) => void;
@@ -1372,23 +1392,33 @@ function AuthScreen({
         <Image source={brandLogo} resizeMode="contain" style={styles.authLogo} />
         <Text style={styles.authTitle}>exdox</Text>
         <Text style={styles.authSubtitle}>
-          {mode === 'login' ? 'Sign in to your receipt workspace.' : 'Create your secure receipt workspace.'}
+          {mode === 'login'
+            ? 'Sign in to your receipt workspace.'
+            : mode === 'register'
+              ? 'Create your secure receipt workspace.'
+              : 'Request help getting back into your Exdox workspace.'}
         </Text>
 
-        <View style={styles.authTabs}>
-          <Pressable
-            style={[styles.authTab, mode === 'login' && styles.authTabActive]}
-            onPress={() => onChangeMode('login')}
-          >
-            <Text style={[styles.authTabText, mode === 'login' && styles.authTabTextActive]}>Login</Text>
+        {mode !== 'reset' ? (
+          <View style={styles.authTabs}>
+            <Pressable
+              style={[styles.authTab, mode === 'login' && styles.authTabActive]}
+              onPress={() => onChangeMode('login')}
+            >
+              <Text style={[styles.authTabText, mode === 'login' && styles.authTabTextActive]}>Login</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.authTab, mode === 'register' && styles.authTabActive]}
+              onPress={() => onChangeMode('register')}
+            >
+              <Text style={[styles.authTabText, mode === 'register' && styles.authTabTextActive]}>Register</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable style={styles.authSecondaryLink} onPress={onBackToLogin}>
+            <Text style={styles.authSecondaryLinkText}>Back to login</Text>
           </Pressable>
-          <Pressable
-            style={[styles.authTab, mode === 'register' && styles.authTabActive]}
-            onPress={() => onChangeMode('register')}
-          >
-            <Text style={[styles.authTabText, mode === 'register' && styles.authTabTextActive]}>Register</Text>
-          </Pressable>
-        </View>
+        )}
 
         {mode === 'register' ? (
           <>
@@ -1411,28 +1441,37 @@ function AuthScreen({
         <TextInput
           value={email}
           onChangeText={onChangeEmail}
-          placeholder="Email"
+          placeholder={mode === 'reset' ? 'Work email' : 'Email'}
           keyboardType="email-address"
           autoCapitalize="none"
           placeholderTextColor={colors.mutedText}
           style={styles.authInput}
         />
-        <TextInput
-          value={password}
-          onChangeText={onChangePassword}
-          placeholder="Password"
-          secureTextEntry
-          placeholderTextColor={colors.mutedText}
-          style={styles.authInput}
-        />
+        {mode !== 'reset' ? (
+          <TextInput
+            value={password}
+            onChangeText={onChangePassword}
+            placeholder="Password"
+            secureTextEntry
+            placeholderTextColor={colors.mutedText}
+            style={styles.authInput}
+          />
+        ) : null}
 
         <Pressable style={[styles.authButton, busy && styles.authButtonDisabled]} onPress={onSubmit} disabled={busy}>
           {busy ? (
             <ActivityIndicator color={colors.white} />
           ) : (
-            <Text style={styles.authButtonText}>{mode === 'login' ? 'Sign in' : 'Create account'}</Text>
+            <Text style={styles.authButtonText}>
+              {mode === 'login' ? 'Sign in' : mode === 'register' ? 'Create account' : 'Request reset help'}
+            </Text>
           )}
         </Pressable>
+        {mode === 'login' ? (
+          <Pressable style={styles.authSecondaryLink} onPress={onOpenReset}>
+            <Text style={styles.authSecondaryLinkText}>Forgot password?</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -2373,11 +2412,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.white,
   },
+  authSecondaryLink: {
+    marginTop: 14,
+    alignSelf: 'center',
+    paddingVertical: 4,
+  },
+  authSecondaryLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.royalBlueDark,
+  },
   loadingScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.white,
+  },
+  loadingLogo: {
+    width: 112,
+    height: 112,
+    marginBottom: 18,
   },
   loadingText: {
     marginTop: spacing.sm,
@@ -2391,6 +2445,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 26,
     paddingTop: 12,
     paddingBottom: 18,
+  },
+  headerBrandBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 16,
+  },
+  headerBrandMark: {
+    width: 38,
+    height: 38,
   },
   headerTitle: {
     fontSize: 28,
