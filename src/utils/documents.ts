@@ -15,6 +15,21 @@ const formatTitle = (name: string) =>
 
 const formatCurrencyAmount = () => 0;
 
+export const extractionLooksUnreadable = (input: {
+  amount?: number | null;
+  notes?: string | null;
+  needsReview?: boolean;
+}) => {
+  const noteText = (input.notes ?? '').toLowerCase();
+  return (
+    input.needsReview === true &&
+    (input.amount ?? 0) === 0 &&
+    /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount/.test(
+      noteText,
+    )
+  );
+};
+
 export const buildDraftDocument = async ({
   fileName,
   source,
@@ -69,7 +84,10 @@ export const buildDraftDocument = async ({
     fileUri: storedUri,
     fileName,
     source,
-    extractionStatus: extracted.extractionSource === 'backend_proxy' ? 'complete' : 'failed',
+    extractionStatus:
+      extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted)
+        ? 'complete'
+        : 'failed',
     extractionSource: extracted.extractionSource,
     confidenceScore: extracted.confidenceScore ?? null,
     needsReview: extracted.needsReview ?? true,

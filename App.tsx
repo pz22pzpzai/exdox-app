@@ -45,7 +45,7 @@ import {
   WorkspaceContext,
 } from './src/types';
 import { clearAuthSession, loadAuthSession, saveAuthSession } from './src/utils/authStorage';
-import { buildDraftDocument } from './src/utils/documents';
+import { buildDraftDocument, extractionLooksUnreadable } from './src/utils/documents';
 import { prepareImportedImageForApp } from './src/utils/uploadAsset';
 import {
   appendStoredDiagnosticLog,
@@ -165,7 +165,10 @@ const applyExtractedDocumentDraft = (
   dueDate: extracted.dueDate,
   invoiceNumber: extracted.invoiceNumber,
   notes: extracted.notes || document.notes,
-  extractionStatus: extracted.extractionSource === 'backend_proxy' ? 'complete' : 'failed',
+  extractionStatus:
+    extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted)
+      ? 'complete'
+      : 'failed',
   extractionSource: extracted.extractionSource,
   confidenceScore: extracted.confidenceScore ?? null,
   needsReview: extracted.needsReview ?? true,
@@ -1676,7 +1679,7 @@ function DocumentRow({
     document.extractionStatus === 'pending'
       ? 'Reading receipt...'
       : document.extractionStatus === 'failed'
-        ? 'Could not read amount'
+        ? 'Could not read receipt or invoice'
         : document.needsReview
           ? 'Check extracted details'
           : null;
@@ -1978,7 +1981,7 @@ function DocumentSheet({
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'
       : document.extractionStatus === 'failed'
-        ? 'The amount could not be read from this image yet.'
+        ? 'Could not read receipt or invoice.'
         : document.needsReview
           ? 'Extraction finished. Review the details before submitting.'
           : 'Extraction finished.';
