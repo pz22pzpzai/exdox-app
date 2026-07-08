@@ -153,6 +153,25 @@ export async function attachCloudReceiptToClaim(input: { receiptId: number; clai
   }
 }
 
+export async function deleteCloudReceipt(receiptId: number) {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/receipts/${receiptId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (response.status === 204) {
+    return;
+  }
+
+  const data = (await response.json()) as { success?: boolean; message?: string };
+  if (!response.ok || data.success === false) {
+    throw new Error(typeof data.message === 'string' ? data.message : 'Could not delete this receipt.');
+  }
+}
+
 function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): ExpenseDocument {
   return {
     id: `cloud-${receipt.id}`,

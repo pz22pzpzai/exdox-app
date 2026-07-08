@@ -27,6 +27,7 @@ import { documentExtractionService, ExtractedDocumentDraft } from './src/service
 import {
   attachCloudReceiptToClaim,
   createCloudClaim,
+  deleteCloudReceipt,
   fetchCloudReceipts,
   fetchExpenseClaims,
 } from './src/services/receiptsApi';
@@ -273,7 +274,7 @@ export default function App() {
     try {
       const [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
         fetchCloudReceipts('cost'),
-        session.user.role === 'Business_Admin' ? fetchCloudReceipts('sales') : Promise.resolve([]),
+        fetchCloudReceipts('sales'),
         fetchExpenseClaims(),
       ]);
       setAppState((current) => ({
@@ -507,18 +508,6 @@ export default function App() {
 
     void syncCloudWorkspace(authSession);
   }, [authSession, syncCloudWorkspace]);
-
-  useEffect(() => {
-    if (!isAdmin && activeTab === 'sales') {
-      setActiveTab('costs');
-    }
-  }, [activeTab, isAdmin]);
-
-  useEffect(() => {
-    if (!isAdmin && captureType === 'invoice') {
-      setCaptureType('receipt');
-    }
-  }, [captureType, isAdmin]);
 
   useEffect(() => {
     if (!pendingGalleryOpen || cameraVisible) {
@@ -894,6 +883,51 @@ export default function App() {
     Alert.alert('Mileage tracking coming soon', 'The mileage claim flow is reserved for the next rollout.');
   };
 
+  const deleteDocument = useEffectEvent(async (document: ExpenseDocument) => {
+    if (document.claimId) {
+      Alert.alert(
+        'Document linked to claim',
+        'This item is already attached to an expense claim. Remove it from the claim flow first, then delete it.',
+      );
+      return;
+    }
+
+    try {
+      if (document.cloudReceiptId) {
+        await deleteCloudReceipt(document.cloudReceiptId);
+      }
+
+      updateState((current) => ({
+        ...current,
+        documents: current.documents.filter((item) => item.id !== document.id),
+      }));
+      setSelectedDocumentId((current) => (current === document.id ? null : current));
+    } catch (error) {
+      void recordError('deleteDocument', error);
+      Alert.alert('Delete failed', error instanceof Error ? error.message : 'Could not delete this document.');
+    }
+  });
+
+  const confirmDeleteDocument = useEffectEvent((document: ExpenseDocument) => {
+    Alert.alert(
+      'Delete document',
+      `Delete ${document.title}? This cannot be undone.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deleteDocument(document);
+          },
+        },
+      ],
+    );
+  });
+
   const updateDocumentStatus = (documentId: string, status: ExpenseDocument['status']) => {
     updateState((current) => ({
       ...current,
@@ -1033,6 +1067,7 @@ export default function App() {
             <CostsScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
+              onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
           )}
@@ -1040,6 +1075,7 @@ export default function App() {
             <SalesScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
+              onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
           )}
@@ -1068,7 +1104,6 @@ export default function App() {
 
         <BottomNav
           activeTab={activeTab}
-          isAdmin={Boolean(isAdmin)}
           onSelect={setActiveTab}
           onOpenCamera={openCapture}
           onOpenCaptureActions={openCaptureActions}
@@ -1077,6 +1112,7 @@ export default function App() {
         <CaptureModal
           visible={captureModalVisible}
           captureType={captureType}
+          activeTab={activeTab}
           isAdmin={Boolean(isAdmin)}
           isSaving={isSaving}
           onClose={() => setCaptureModalVisible(false)}
@@ -1127,6 +1163,11 @@ export default function App() {
           onMarkSubmitted={() => {
             if (selectedDocument) {
               updateDocumentStatus(selectedDocument.id, 'submitted');
+            }
+          }}
+          onDelete={() => {
+            if (selectedDocument) {
+              confirmDeleteDocument(selectedDocument);
             }
           }}
         />
@@ -1235,10 +1276,12 @@ function SearchBand({
 function CostsScreen({
   documents,
   onOpenDocument,
+  onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
+  onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
   if (!documents.length) {
@@ -1259,7 +1302,12 @@ function CostsScreen({
         <Text style={styles.dayHeaderText}>Today</Text>
       </View>
       {documents.map((document) => (
-        <DocumentRow key={document.id} document={document} onPress={() => onOpenDocument(document.id)} />
+        <DocumentRow
+          key={document.id}
+          document={document}
+          onPress={() => onOpenDocument(document.id)}
+          onLongPress={() => onDeleteDocument(document)}
+        />
       ))}
     </View>
   );
@@ -1268,10 +1316,12 @@ function CostsScreen({
 function SalesScreen({
   documents,
   onOpenDocument,
+  onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
+  onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
   if (!documents.length) {
@@ -1289,7 +1339,12 @@ function SalesScreen({
   return (
     <View>
       {documents.map((document) => (
-        <DocumentRow key={document.id} document={document} onPress={() => onOpenDocument(document.id)} />
+        <DocumentRow
+          key={document.id}
+          document={document}
+          onPress={() => onOpenDocument(document.id)}
+          onLongPress={() => onDeleteDocument(document)}
+        />
       ))}
     </View>
   );
@@ -1666,10 +1721,12 @@ function BlankPanel({
 function DocumentRow({
   document,
   onPress,
+  onLongPress,
   compact = false,
 }: {
   document: ExpenseDocument;
   onPress: () => void;
+  onLongPress?: () => void;
   compact?: boolean;
 }) {
   const hasPreviewImage =
@@ -1685,7 +1742,12 @@ function DocumentRow({
           : null;
 
   return (
-    <Pressable style={[styles.documentRow, compact && styles.documentRowCompact]} onPress={onPress}>
+    <Pressable
+      style={[styles.documentRow, compact && styles.documentRowCompact]}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={240}
+    >
       <View style={styles.documentLeft}>
         {hasPreviewImage ? (
           <Image
@@ -1741,13 +1803,11 @@ function StatusPill({ status }: { status: ExpenseDocument['status'] }) {
 
 function BottomNav({
   activeTab,
-  isAdmin,
   onSelect,
   onOpenCamera,
   onOpenCaptureActions,
 }: {
   activeTab: MainTab;
-  isAdmin: boolean;
   onSelect: (tab: MainTab) => void;
   onOpenCamera: () => void;
   onOpenCaptureActions: () => void;
@@ -1761,15 +1821,13 @@ function BottomNav({
         activeIcon="cart"
         onPress={() => onSelect('costs')}
       />
-      {isAdmin ? (
-        <BottomTabItem
-          active={activeTab === 'sales'}
-          label="Sales"
-          icon="albums-outline"
-          activeIcon="albums"
-          onPress={() => onSelect('sales')}
-        />
-      ) : null}
+      <BottomTabItem
+        active={activeTab === 'sales'}
+        label="Sales"
+        icon="albums-outline"
+        activeIcon="albums"
+        onPress={() => onSelect('sales')}
+      />
       <View style={styles.capturePill}>
         <Pressable style={styles.capturePrimaryButton} onPress={onOpenCamera}>
           <Ionicons name="camera-outline" size={24} color={colors.white} />
@@ -1944,6 +2002,7 @@ function DocumentSheet({
   onAddToClaim,
   onUpdateTaxFields,
   onMarkSubmitted,
+  onDelete,
 }: {
   document: ExpenseDocument | null;
   onClose: () => void;
@@ -1953,6 +2012,7 @@ function DocumentSheet({
     taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
   ) => void;
   onMarkSubmitted: () => void;
+  onDelete: () => void;
 }) {
   const [totalInput, setTotalInput] = useState('0.00');
   const [netInput, setNetInput] = useState('0.00');
@@ -2074,6 +2134,9 @@ function DocumentSheet({
             <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkSubmitted}>
               <Text style={styles.sheetActionPrimaryText}>Mark submitted</Text>
             </Pressable>
+            <Pressable style={[styles.sheetActionButton, styles.sheetActionDanger]} onPress={onDelete}>
+              <Text style={styles.sheetActionDangerText}>Delete</Text>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -2106,6 +2169,7 @@ function TaxAmountField({
 
 function CaptureModal({
   captureType,
+  activeTab,
   isAdmin,
   visible,
   isSaving,
@@ -2116,6 +2180,7 @@ function CaptureModal({
   onUseFiles,
 }: {
   captureType: DocumentKind;
+  activeTab: MainTab;
   isAdmin: boolean;
   visible: boolean;
   isSaving: boolean;
@@ -2125,7 +2190,12 @@ function CaptureModal({
   onUseGallery: () => void;
   onUseFiles: () => void;
 }) {
-  const availableTypes = isAdmin ? (['receipt', 'invoice'] as const) : (['receipt'] as const);
+  const availableTypes =
+    activeTab === 'sales'
+      ? (['invoice'] as const)
+      : isAdmin
+        ? (['receipt', 'invoice'] as const)
+        : (['receipt'] as const);
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
@@ -3133,6 +3203,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.royalBlueDark,
     borderColor: colors.royalBlueDark,
   },
+  sheetActionDanger: {
+    backgroundColor: '#FBE5E2',
+    borderColor: '#F3C5BE',
+  },
   sheetActionText: {
     fontSize: 16,
     fontWeight: '600',
@@ -3142,6 +3216,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: colors.white,
+  },
+  sheetActionDangerText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#A43A2D',
   },
   captureSheet: {
     backgroundColor: colors.white,
