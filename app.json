@@ -1,15 +1,29 @@
 {
   "expo": {
-    "name": "app",
-    "slug": "app",
+    "name": "exdox",
+    "slug": "exdox",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "exdox",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.receiptflow.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Use the camera to capture receipts and invoices.",
+        "NSPhotoLibraryUsageDescription": "Use the photo library to import receipt and invoice images.",
+        "NSPhotoLibraryAddUsageDescription": "Save captured receipt and invoice images to your photo library when enabled."
+      }
     },
     "android": {
+      "package": "com.receiptflow.mobile",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +34,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-document-picker",
+      "expo-image-picker",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "appDisplayName": "exdox",
+      "expensesApiUrl": "https://hz2zkm6jkf.execute-api.eu-west-2.amazonaws.com/prod/api/v1/expenses/process"
     }
   }
 }
