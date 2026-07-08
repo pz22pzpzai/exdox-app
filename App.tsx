@@ -63,6 +63,7 @@ type MoreSheetTarget = 'menu' | 'capture_actions';
 
 const brandLogo = require('./assets/exdox-logo.png');
 const brandMark = require('./assets/exdox-mark.png');
+const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
 
@@ -980,7 +981,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.loadingScreen}>
         <StatusBar style="dark" />
-        <Image source={brandMark} resizeMode="contain" style={styles.loadingLogo} />
+        <Image source={brandBadge} resizeMode="contain" style={styles.loadingLogo} />
         <Text style={styles.loadingText}>Preparing your workspace...</Text>
       </SafeAreaView>
     );
@@ -1188,7 +1189,7 @@ function TopHeader({
   return (
     <View style={styles.header}>
       <View style={styles.headerBrandBlock}>
-        <Image source={brandMark} resizeMode="contain" style={styles.headerBrandMark} />
+        <Image source={brandBadge} resizeMode="contain" style={styles.headerBrandMark} />
         <View>
           <Text style={styles.headerTitle}>{title}</Text>
           <Text style={styles.headerSubtitle}>{subtitle}</Text>
@@ -2429,9 +2430,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   loadingLogo: {
-    width: 112,
-    height: 112,
-    marginBottom: 18,
+    width: 132,
+    height: 132,
+    marginBottom: 20,
   },
   loadingText: {
     marginTop: spacing.sm,
@@ -2454,8 +2455,8 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   headerBrandMark: {
-    width: 38,
-    height: 38,
+    width: 52,
+    height: 52,
   },
   headerTitle: {
     fontSize: 28,
