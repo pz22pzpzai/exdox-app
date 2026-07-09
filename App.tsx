@@ -8,6 +8,7 @@ import {
   InteractionManager,
   Linking,
   Modal,
+  NativeModules,
   Platform,
   Pressable,
   ScrollView,
@@ -73,6 +74,15 @@ const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
 const previewableImagePattern = /\.(jpg|jpeg|png|webp|heic)$/i;
 const pdfDocumentPattern = /\.pdf(\?|$)/i;
+
+type NativeGalleryAsset = {
+  uri: string;
+  fileName: string;
+};
+
+const NativeGalleryPicker = NativeModules.NativeGalleryPicker as
+  | { open: () => Promise<NativeGalleryAsset | null> }
+  | undefined;
 
 const getWorkspaceContextForTab = (tab: MainTab): WorkspaceContext => (tab === 'sales' ? 'sales' : 'cost');
 const getDefaultPaymentMethod = (workspaceContext: WorkspaceContext, isAdmin: boolean): PaymentMethod => {
@@ -940,6 +950,31 @@ export default function App() {
   };
 
   const openGalleryPicker = async () => {
+    if (String(Platform.OS) === 'android' && NativeGalleryPicker) {
+      try {
+        await recordDiagnostic('gallery', 'Launching native Android gallery picker');
+        const asset = await NativeGalleryPicker.open();
+        if (!asset) {
+          await recordDiagnostic('gallery', 'Native Android gallery selection canceled');
+          return;
+        }
+
+        await recordDiagnostic('gallery', `Native Android gallery returned ${asset.fileName}`);
+        await commitGalleryAsset(
+          {
+            uri: asset.uri,
+            fileName: asset.fileName,
+            assetId: asset.uri,
+          },
+          'gallery',
+        );
+      } catch (error) {
+        void recordError('native gallery picker', error);
+        Alert.alert('Import failed', error instanceof Error ? error.message : 'The selected image could not be imported.');
+      }
+      return;
+    }
+
     await recordDiagnostic('gallery', 'Requesting photo library permission');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     await recordDiagnostic(
