@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState, useDeferredValue } from 'react';
+import { memo, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -187,6 +187,16 @@ const applyExtractedDocumentDraft = (
 const canPreviewDocumentInline = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) =>
   Boolean(document.fileUri) && previewableImagePattern.test(document.fileName);
 
+const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocuments: ExpenseDocument[]) => {
+  const retainedLocalDocuments = currentDocuments.filter((document) => !document.cloudReceiptId);
+  const cloudReceiptIds = new Set(cloudDocuments.map((document) => document.cloudReceiptId).filter(Boolean));
+  const dedupedLocalDocuments = retainedLocalDocuments.filter((document) => !cloudReceiptIds.has(document.cloudReceiptId));
+
+  return [...dedupedLocalDocuments, ...cloudDocuments].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  );
+};
+
 export default function App() {
   const hasLoggedLaunchRef = useRef(false);
   const hasRecoveredPickerResultRef = useRef(false);
@@ -319,7 +329,7 @@ export default function App() {
 
       setAppState((current) => ({
         ...current,
-        documents: hydratedDocuments,
+        documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments),
         claims: remoteClaims,
       }));
     } catch (error) {
@@ -457,10 +467,16 @@ export default function App() {
   const schedulePreparedDocumentCommit = useEffectEvent(
     (document: ExpenseDocument, origin: 'camera' | 'gallery' | 'recovery') => {
       void recordDiagnostic(document.source, `Scheduling deferred commit from ${origin}`);
-      InteractionManager.runAfterInteractions(() => {
-        void recordDiagnostic(document.source, `Deferred commit running after interactions from ${origin}`);
-        void commitPreparedDocument(document, origin);
-      });
+      if (origin === 'camera') {
+        InteractionManager.runAfterInteractions(() => {
+          void recordDiagnostic(document.source, `Deferred commit running after interactions from ${origin}`);
+          void commitPreparedDocument(document, origin);
+        });
+        return;
+      }
+
+      void recordDiagnostic(document.source, `Immediate commit running for ${origin}`);
+      void commitPreparedDocument(document, origin);
     },
   );
 
@@ -1758,7 +1774,7 @@ function BlankPanel({
   );
 }
 
-function DocumentRow({
+const DocumentRow = memo(function DocumentRow({
   document,
   onPress,
   onLongPress,
@@ -1791,6 +1807,7 @@ function DocumentRow({
         {hasPreviewImage ? (
           <Image
             source={{ uri: document.fileUri }}
+            fadeDuration={0}
             resizeMethod="resize"
             resizeMode="cover"
             style={styles.documentThumb}
@@ -1814,7 +1831,9 @@ function DocumentRow({
       </View>
     </Pressable>
   );
-}
+}, (previousProps, nextProps) =>
+  previousProps.document === nextProps.document && previousProps.compact === nextProps.compact,
+);
 
 function StatusPill({ status }: { status: ExpenseDocument['status'] }) {
   const label =
@@ -2096,6 +2115,7 @@ function DocumentSheet({
           {hasPreviewImage ? (
             <Image
               source={{ uri: document.fileUri }}
+              fadeDuration={0}
               resizeMethod="resize"
               resizeMode="contain"
               style={styles.documentSheetPreview}
