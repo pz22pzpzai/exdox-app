@@ -2,6 +2,7 @@ import { memo, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, use
 import {
   ActivityIndicator,
   Alert,
+  AppState as RNAppState,
   Image,
   InteractionManager,
   Linking,
@@ -218,10 +219,43 @@ const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocum
   );
 };
 
+const galleryResultAssetName = (asset: { uri?: string | null; fileName?: string | null; assetId?: string | null }) =>
+  asset.assetId ?? asset.uri ?? asset.fileName ?? `gallery-${Date.now()}`;
+
+const DocumentThumbnail = memo(function DocumentThumbnail({
+  fileUri,
+  hasPreviewImage,
+}: {
+  fileUri?: string;
+  hasPreviewImage: boolean;
+}) {
+  if (hasPreviewImage && fileUri) {
+    return (
+      <Image
+        source={{ uri: fileUri }}
+        fadeDuration={0}
+        resizeMethod="resize"
+        resizeMode="cover"
+        style={styles.documentThumb}
+      />
+    );
+  }
+
+  return (
+    <View style={styles.documentThumbFallback}>
+      <View style={styles.documentDot} />
+    </View>
+  );
+}, (previousProps, nextProps) =>
+  previousProps.fileUri === nextProps.fileUri && previousProps.hasPreviewImage === nextProps.hasPreviewImage,
+);
+
 export default function App() {
   const hasLoggedLaunchRef = useRef(false);
   const hasRecoveredPickerResultRef = useRef(false);
   const hasRestoredStateRef = useRef(false);
+  const awaitingGalleryResultRef = useRef(false);
+  const handledGalleryAssetRef = useRef<string | null>(null);
   const [appState, setAppState] = useState<AppState>(seedState);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
@@ -570,37 +604,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (hasRecoveredPickerResultRef.current) {
-      return;
-    }
-
-    hasRecoveredPickerResultRef.current = true;
-    void (async () => {
-      try {
-        const pendingResult = await ImagePicker.getPendingResultAsync();
-        if (!pendingResult || 'code' in pendingResult || pendingResult.canceled || !pendingResult.assets?.length) {
-          return;
-        }
-
-        const asset = pendingResult.assets[0];
-        await recordDiagnostic('gallery', `Recovered pending picker result: ${asset.fileName ?? 'unnamed'}`);
-        const nextDocument = buildManualDraftDocument({
-          source: 'gallery',
-          type: captureType,
-          uri: asset.uri,
-          fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
-          workspaceContext: getWorkspaceContextForTab(activeTab),
-          paymentMethod: getDefaultPaymentMethod(getWorkspaceContextForTab(activeTab), Boolean(isAdmin)),
-        });
-        schedulePreparedDocumentCommit(nextDocument, 'recovery');
-        await recordDiagnostic('gallery', 'Recovered result scheduled for deferred commit');
-      } catch (error) {
-        void recordError('picker pending result', error);
-      }
-    })();
-  }, [activeTab, captureType, isAdmin, prepareManualDocument, recordDiagnostic, recordError, schedulePreparedDocumentCommit]);
-
-  useEffect(() => {
     if (!authSession) {
       return;
     }
@@ -792,6 +795,92 @@ export default function App() {
     };
   };
 
+  const commitGalleryAsset = useEffectEvent(
+    async (
+      asset: {
+        uri?: string | null;
+        fileName?: string | null;
+        assetId?: string | null;
+      },
+      origin: 'gallery' | 'recovery',
+    ) => {
+      const assetKey = galleryResultAssetName(asset);
+      if (handledGalleryAssetRef.current === assetKey) {
+        await recordDiagnostic('gallery', `Skipping duplicate ${origin} asset handoff`);
+        return;
+      }
+
+      if (!asset.uri) {
+        await recordDiagnostic('gallery', `${origin} asset did not provide a usable URI`);
+        Alert.alert('Import failed', 'The selected image did not provide a usable file path.');
+        return;
+      }
+
+      handledGalleryAssetRef.current = assetKey;
+      awaitingGalleryResultRef.current = false;
+      await recordDiagnostic('gallery', `${origin} image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri}`);
+      const nextDocument = buildManualDraftDocument({
+        source: 'gallery',
+        type: captureType,
+        uri: asset.uri,
+        fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
+        ...getCurrentCaptureContext(),
+      });
+      await recordDiagnostic('gallery', `Manual draft document built from ${origin}`);
+      schedulePreparedDocumentCommit(nextDocument, origin);
+      await recordDiagnostic('gallery', 'Document scheduled for deferred state commit');
+    },
+  );
+
+  useEffect(() => {
+    if (hasRecoveredPickerResultRef.current) {
+      return;
+    }
+
+    hasRecoveredPickerResultRef.current = true;
+    void (async () => {
+      try {
+        const pendingResult = await ImagePicker.getPendingResultAsync();
+        if (!pendingResult || 'code' in pendingResult || pendingResult.canceled || !pendingResult.assets?.length) {
+          return;
+        }
+
+        const asset = pendingResult.assets[0];
+        await recordDiagnostic('gallery', `Recovered pending picker result: ${asset.fileName ?? 'unnamed'}`);
+        await commitGalleryAsset(asset, 'recovery');
+      } catch (error) {
+        void recordError('picker pending result', error);
+      }
+    })();
+  }, [commitGalleryAsset, recordDiagnostic, recordError]);
+
+  useEffect(() => {
+    const subscription = RNAppState.addEventListener('change', (nextState: string) => {
+      if (nextState !== 'active' || !awaitingGalleryResultRef.current) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const pendingResult = await ImagePicker.getPendingResultAsync();
+          if (!pendingResult || 'code' in pendingResult || pendingResult.canceled || !pendingResult.assets?.length) {
+            await recordDiagnostic('gallery', 'No recoverable pending gallery result was available');
+            return;
+          }
+
+          await recordDiagnostic('gallery', 'Recovered gallery result after returning to the app');
+          await commitGalleryAsset(pendingResult.assets[0], 'recovery');
+        } catch (error) {
+          void recordError('picker app state recovery', error);
+        }
+      })();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [commitGalleryAsset, recordDiagnostic, recordError]);
+
   const addDocument = async ({
     fileName,
     source,
@@ -848,58 +937,6 @@ export default function App() {
   };
 
   const openGalleryPicker = async () => {
-    const isAndroidDevice = String(Platform.OS) === 'android';
-    if (isAndroidDevice) {
-      await recordDiagnostic('gallery', 'Launching Android image document picker');
-      const result = await DocumentPicker.getDocumentAsync({
-        multiple: false,
-        type: ['image/*'],
-        copyToCacheDirectory: true,
-      });
-      await recordDiagnostic(
-        'gallery',
-        `Android image document picker returned | canceled=${result.canceled ? 'yes' : 'no'} | assets=${result.canceled ? 0 : result.assets.length}`,
-      );
-
-      try {
-        if (!result.canceled && result.assets.length) {
-          const asset = result.assets[0];
-          if (!asset.uri) {
-            await recordDiagnostic('gallery', 'Android picker returned an asset without a usable URI');
-            Alert.alert('Import failed', 'The selected image did not provide a usable file path.');
-            return;
-          }
-
-          await recordDiagnostic('gallery', `Android image selected: ${asset.name} | uri=${asset.uri}`);
-          const nextDocument = buildManualDraftDocument({
-            source: 'gallery',
-            type: captureType,
-            uri: asset.uri,
-            fileName: asset.name ?? `${captureType}-${Date.now()}.jpg`,
-            ...getCurrentCaptureContext(),
-          });
-          await recordDiagnostic('gallery', 'Manual draft document built from Android image picker');
-          schedulePreparedDocumentCommit(nextDocument, 'gallery');
-          await recordDiagnostic('gallery', 'Document scheduled for deferred state commit');
-          return;
-        }
-
-        if (!result.canceled) {
-          await recordDiagnostic('gallery', 'Android image document picker returned without assets');
-          Alert.alert('Import failed', 'No image was returned from the Android picker.');
-          return;
-        }
-
-        await recordDiagnostic('gallery', 'Android image selection canceled');
-        return;
-      } catch (error) {
-        await recordDiagnostic('gallery', 'Android image picker handling threw an error');
-        void recordError('openGalleryPicker.android', error);
-        Alert.alert('Import failed', 'The selected image could not be imported.');
-        return;
-      }
-    }
-
     await recordDiagnostic('gallery', 'Requesting photo library permission');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     await recordDiagnostic(
@@ -929,49 +966,34 @@ export default function App() {
     }
 
     await recordDiagnostic('gallery', 'Launching image library');
+    awaitingGalleryResultRef.current = true;
+    handledGalleryAssetRef.current = null;
     const pickerOptions: any = {
       mediaTypes: ['images'],
       allowsEditing: false,
       allowsMultipleSelection: false,
       quality: 0.8,
       exif: false,
-      ...(Platform.OS === 'android' ? { legacy: true } : {}),
     };
-    const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
-    await recordDiagnostic(
-      'gallery',
-      `Image library returned | canceled=${result.canceled ? 'yes' : 'no'} | assets=${result.assets?.length ?? 0}`,
-    );
 
     try {
+      const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
+      await recordDiagnostic(
+        'gallery',
+        `Image library returned | canceled=${result.canceled ? 'yes' : 'no'} | assets=${result.assets?.length ?? 0}`,
+      );
+
       if (!result.canceled && result.assets?.length) {
-        const asset = result.assets[0];
-        if (!asset.uri) {
-          await recordDiagnostic('gallery', 'Selected image did not provide a usable URI');
-          Alert.alert('Import failed', 'The selected image did not provide a usable file path.');
-          return;
-        }
-        await recordDiagnostic(
-          'gallery',
-          `Image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri ?? 'missing-uri'}`,
-        );
-        const nextDocument = buildManualDraftDocument({
-          source: 'gallery',
-          type: captureType,
-          uri: asset.uri,
-          fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
-          ...getCurrentCaptureContext(),
-        });
-        await recordDiagnostic('gallery', 'Manual draft document built');
-        schedulePreparedDocumentCommit(nextDocument, 'gallery');
-        await recordDiagnostic('gallery', 'Document scheduled for deferred state commit');
+        await commitGalleryAsset(result.assets[0], 'gallery');
       } else if (!result.canceled) {
         await recordDiagnostic('gallery', 'Image picker returned without assets');
         Alert.alert('Import failed', 'No image was returned from the gallery picker.');
       } else {
+        awaitingGalleryResultRef.current = false;
         await recordDiagnostic('gallery', 'Image selection canceled');
       }
     } catch (error) {
+      awaitingGalleryResultRef.current = false;
       await recordDiagnostic('gallery', 'Image handling threw an error');
       void recordError('openGalleryPicker', error);
       console.error('handlePickImage failed', error);
@@ -1932,19 +1954,7 @@ const DocumentRow = memo(function DocumentRow({
       delayLongPress={240}
     >
       <View style={styles.documentLeft}>
-        {hasPreviewImage ? (
-          <Image
-            source={{ uri: document.fileUri }}
-            fadeDuration={0}
-            resizeMethod="resize"
-            resizeMode="cover"
-            style={styles.documentThumb}
-          />
-        ) : (
-          <View style={styles.documentThumbFallback}>
-            <View style={styles.documentDot} />
-          </View>
-        )}
+        <DocumentThumbnail fileUri={document.fileUri} hasPreviewImage={hasPreviewImage} />
         <View style={styles.documentText}>
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
             {document.title}
@@ -2219,7 +2229,7 @@ function DocumentSheet({
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setTaxDropdownOpen(false);
     setPreviewVisible(false);
-  }, [document]);
+  }, [document?.id]);
 
   if (!document) {
     return null;
@@ -2249,7 +2259,14 @@ function DocumentSheet({
               showsVerticalScrollIndicator={false}
             >
               {hasPreviewImage ? (
-                <Pressable style={styles.documentSheetPreviewButton} onPress={() => setPreviewVisible(true)}>
+                <Pressable
+                  style={styles.documentSheetPreviewButton}
+                  onPress={() => {
+                    InteractionManager.runAfterInteractions(() => {
+                      setPreviewVisible(true);
+                    });
+                  }}
+                >
                   <Image
                     source={{ uri: document.fileUri }}
                     fadeDuration={0}
@@ -2342,7 +2359,14 @@ function DocumentSheet({
           </View>
         </View>
       </Modal>
-      <Modal visible={previewVisible} transparent animationType="fade" onRequestClose={() => setPreviewVisible(false)}>
+      <Modal
+        visible={previewVisible}
+        transparent={false}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        onRequestClose={() => setPreviewVisible(false)}
+      >
         <View style={styles.previewFullscreenBackdrop}>
           <Pressable style={styles.previewFullscreenClose} onPress={() => setPreviewVisible(false)}>
             <Ionicons name="close" size={28} color={colors.white} />
