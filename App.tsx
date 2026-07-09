@@ -818,12 +818,17 @@ export default function App() {
 
       handledGalleryAssetRef.current = assetKey;
       awaitingGalleryResultRef.current = false;
+      const preparedAsset = await prepareImportedImageForApp({
+        id: `gallery-${Date.now()}`,
+        uri: asset.uri,
+        fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
+      });
       await recordDiagnostic('gallery', `${origin} image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri}`);
       const nextDocument = buildManualDraftDocument({
         source: 'gallery',
         type: captureType,
-        uri: asset.uri,
-        fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
+        uri: preparedAsset.uri,
+        fileName: preparedAsset.fileName,
         ...getCurrentCaptureContext(),
       });
       await recordDiagnostic('gallery', `Manual draft document built from ${origin}`);
@@ -996,7 +1001,6 @@ export default function App() {
       awaitingGalleryResultRef.current = false;
       await recordDiagnostic('gallery', 'Image handling threw an error');
       void recordError('openGalleryPicker', error);
-      console.error('handlePickImage failed', error);
       Alert.alert('Import failed', 'The selected image could not be imported.');
     }
   };
