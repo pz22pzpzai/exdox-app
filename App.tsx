@@ -848,6 +848,58 @@ export default function App() {
   };
 
   const openGalleryPicker = async () => {
+    const isAndroidDevice = String(Platform.OS) === 'android';
+    if (isAndroidDevice) {
+      await recordDiagnostic('gallery', 'Launching Android image document picker');
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: false,
+        type: ['image/*'],
+        copyToCacheDirectory: true,
+      });
+      await recordDiagnostic(
+        'gallery',
+        `Android image document picker returned | canceled=${result.canceled ? 'yes' : 'no'} | assets=${result.canceled ? 0 : result.assets.length}`,
+      );
+
+      try {
+        if (!result.canceled && result.assets.length) {
+          const asset = result.assets[0];
+          if (!asset.uri) {
+            await recordDiagnostic('gallery', 'Android picker returned an asset without a usable URI');
+            Alert.alert('Import failed', 'The selected image did not provide a usable file path.');
+            return;
+          }
+
+          await recordDiagnostic('gallery', `Android image selected: ${asset.name} | uri=${asset.uri}`);
+          const nextDocument = buildManualDraftDocument({
+            source: 'gallery',
+            type: captureType,
+            uri: asset.uri,
+            fileName: asset.name ?? `${captureType}-${Date.now()}.jpg`,
+            ...getCurrentCaptureContext(),
+          });
+          await recordDiagnostic('gallery', 'Manual draft document built from Android image picker');
+          schedulePreparedDocumentCommit(nextDocument, 'gallery');
+          await recordDiagnostic('gallery', 'Document scheduled for deferred state commit');
+          return;
+        }
+
+        if (!result.canceled) {
+          await recordDiagnostic('gallery', 'Android image document picker returned without assets');
+          Alert.alert('Import failed', 'No image was returned from the Android picker.');
+          return;
+        }
+
+        await recordDiagnostic('gallery', 'Android image selection canceled');
+        return;
+      } catch (error) {
+        await recordDiagnostic('gallery', 'Android image picker handling threw an error');
+        void recordError('openGalleryPicker.android', error);
+        Alert.alert('Import failed', 'The selected image could not be imported.');
+        return;
+      }
+    }
+
     await recordDiagnostic('gallery', 'Requesting photo library permission');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     await recordDiagnostic(
