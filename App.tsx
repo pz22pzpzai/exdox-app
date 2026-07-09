@@ -28,6 +28,7 @@ import {
   attachCloudReceiptToClaim,
   createCloudClaim,
   deleteCloudReceipt,
+  fetchCloudReceiptAssetUrl,
   fetchCloudReceipts,
   fetchExpenseClaims,
 } from './src/services/receiptsApi';
@@ -67,6 +68,7 @@ const brandMark = require('./assets/exdox-mark.png');
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
+const previewableImagePattern = /\.(jpg|jpeg|png|webp|heic)$/i;
 
 const getWorkspaceContextForTab = (tab: MainTab): WorkspaceContext => (tab === 'sales' ? 'sales' : 'cost');
 const getDefaultPaymentMethod = (workspaceContext: WorkspaceContext, isAdmin: boolean): PaymentMethod => {
@@ -182,6 +184,9 @@ const applyExtractedDocumentDraft = (
   paymentMethod: extracted.paymentMethod ?? document.paymentMethod,
 });
 
+const canPreviewDocumentInline = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) =>
+  Boolean(document.fileUri) && previewableImagePattern.test(document.fileName);
+
 export default function App() {
   const hasLoggedLaunchRef = useRef(false);
   const hasRecoveredPickerResultRef = useRef(false);
@@ -277,9 +282,44 @@ export default function App() {
         fetchCloudReceipts('sales'),
         fetchExpenseClaims(),
       ]);
+      const currentDocuments = appState.documents;
+      const mergedDocuments = [...costDocuments, ...salesDocuments].sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      );
+      const hydratedDocuments = await Promise.all(
+        mergedDocuments.map(async (document) => {
+          if (!previewableImagePattern.test(document.fileName) || !document.cloudReceiptId) {
+            return document;
+          }
+
+          const existingDocument = currentDocuments.find(
+            (current) =>
+              current.cloudReceiptId === document.cloudReceiptId &&
+              current.fileUri &&
+              previewableImagePattern.test(current.fileName),
+          );
+          if (existingDocument?.fileUri) {
+            return {
+              ...document,
+              fileUri: existingDocument.fileUri,
+            };
+          }
+
+          try {
+            const fileUri = await fetchCloudReceiptAssetUrl(document.cloudReceiptId);
+            return {
+              ...document,
+              fileUri,
+            };
+          } catch {
+            return document;
+          }
+        }),
+      );
+
       setAppState((current) => ({
         ...current,
-        documents: [...costDocuments, ...salesDocuments].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+        documents: hydratedDocuments,
         claims: remoteClaims,
       }));
     } catch (error) {
@@ -1729,8 +1769,7 @@ function DocumentRow({
   onLongPress?: () => void;
   compact?: boolean;
 }) {
-  const hasPreviewImage =
-    Boolean(document.fileUri) && /\.(jpg|jpeg|png|webp|heic)$/i.test(document.fileName);
+  const hasPreviewImage = canPreviewDocumentInline(document);
   const isProcessing = document.extractionStatus === 'pending';
   const extractionStatusText =
     document.extractionStatus === 'pending'
@@ -2038,7 +2077,7 @@ function DocumentSheet({
   }
 
   const hasPreviewImage =
-    Boolean(document.fileUri) && /\.(jpg|jpeg|png|webp|heic)$/i.test(document.fileName);
+    canPreviewDocumentInline(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'

@@ -172,6 +172,34 @@ export async function deleteCloudReceipt(receiptId: number) {
   }
 }
 
+export async function fetchCloudReceiptAssetUrl(receiptId: number) {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/receipts/${receiptId}/asset-url`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = (await response.json()) as
+    | {
+        success: true;
+        asset?: {
+          downloadUrl?: string;
+        };
+      }
+    | { success: false; message?: string };
+
+  if (!response.ok || !('success' in data) || data.success !== true || !data.asset?.downloadUrl) {
+    throw new Error(
+      'message' in data && typeof data.message === 'string'
+        ? data.message
+        : 'Could not load the receipt image.',
+    );
+  }
+
+  return data.asset.downloadUrl;
+}
+
 function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): ExpenseDocument {
   return {
     id: `cloud-${receipt.id}`,
