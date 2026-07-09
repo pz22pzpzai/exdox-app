@@ -105,6 +105,10 @@ class LocalMockExtractionService implements DocumentExtractionService {
         );
       }
 
+      if (shouldTreatPayloadAsUnreadable(payload.document)) {
+        return buildFallbackDraft(type, fileName, 'Could not read receipt or invoice.');
+      }
+
       return {
         supplier: payload.document.vendorName ?? formatNameFallback(fileName, type),
         amount: payload.document.totalAmount ?? 0,
@@ -171,6 +175,28 @@ type ExpenseApiError = {
   success: false;
   message?: string;
 };
+
+function shouldTreatPayloadAsUnreadable(document: ExpenseApiResponse['document']) {
+  const noteText = document.notes.join(' ').toLowerCase();
+  if (
+    /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount|blank image|blank file|no receipt visible|no invoice visible|not clearly visible/.test(
+      noteText,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    document.vendorName === null &&
+    document.totalAmount !== null &&
+    document.confidenceScore !== null &&
+    document.confidenceScore < 0.55 &&
+    !document.invoiceNumber &&
+    !document.dueDate &&
+    document.lineItems.length === 0 &&
+    document.taxBreakdown.length === 0
+  );
+}
 
 function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string): ExtractedDocumentDraft {
   return {
