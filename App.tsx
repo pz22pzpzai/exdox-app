@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   InteractionManager,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -69,6 +70,7 @@ const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
 const previewableImagePattern = /\.(jpg|jpeg|png|webp|heic)$/i;
+const pdfDocumentPattern = /\.pdf(\?|$)/i;
 
 const getWorkspaceContextForTab = (tab: MainTab): WorkspaceContext => (tab === 'sales' ? 'sales' : 'cost');
 const getDefaultPaymentMethod = (workspaceContext: WorkspaceContext, isAdmin: boolean): PaymentMethod => {
@@ -185,7 +187,26 @@ const applyExtractedDocumentDraft = (
 });
 
 const canPreviewDocumentInline = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) =>
-  Boolean(document.fileUri) && previewableImagePattern.test(document.fileName);
+  Boolean(document.fileUri) &&
+  !pdfDocumentPattern.test(document.fileName) &&
+  !pdfDocumentPattern.test(document.fileUri ?? '') &&
+  (previewableImagePattern.test(document.fileName) ||
+    previewableImagePattern.test(document.fileUri ?? '') ||
+    Boolean(document.fileName));
+
+const canHydrateDocumentPreview = (document: Pick<ExpenseDocument, 'fileName'>) =>
+  !pdfDocumentPattern.test(document.fileName) && Boolean(document.fileName);
+
+const isTransientNetworkError = (error: unknown) => {
+  const message =
+    error instanceof Error
+      ? `${error.message} ${error.stack ?? ''}`.toLowerCase()
+      : String(error).toLowerCase();
+
+  return /unknownhostexception|unable to resolve host|network request failed|failed to fetch|timeout/.test(message);
+};
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocuments: ExpenseDocument[]) => {
   const retainedLocalDocuments = currentDocuments.filter((document) => !document.cloudReceiptId);
@@ -287,18 +308,36 @@ export default function App() {
 
   const syncCloudWorkspace = useEffectEvent(async (session: AuthSession) => {
     try {
-      const [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
-        fetchCloudReceipts('cost'),
-        fetchCloudReceipts('sales'),
-        fetchExpenseClaims(),
-      ]);
+      let costDocuments: ExpenseDocument[] = [];
+      let salesDocuments: ExpenseDocument[] = [];
+      let remoteClaims: Claim[] = [];
+
+      try {
+        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
+          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('sales'),
+          fetchExpenseClaims(),
+        ]);
+      } catch (error) {
+        if (!isTransientNetworkError(error)) {
+          throw error;
+        }
+
+        await delay(1200);
+        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
+          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('sales'),
+          fetchExpenseClaims(),
+        ]);
+      }
+
       const currentDocuments = appState.documents;
       const mergedDocuments = [...costDocuments, ...salesDocuments].sort((left, right) =>
         right.createdAt.localeCompare(left.createdAt),
       );
       const hydratedDocuments = await Promise.all(
         mergedDocuments.map(async (document) => {
-          if (!previewableImagePattern.test(document.fileName) || !document.cloudReceiptId) {
+          if (!canHydrateDocumentPreview(document) || !document.cloudReceiptId) {
             return document;
           }
 
@@ -306,7 +345,7 @@ export default function App() {
             (current) =>
               current.cloudReceiptId === document.cloudReceiptId &&
               current.fileUri &&
-              previewableImagePattern.test(current.fileName),
+              canPreviewDocumentInline(current),
           );
           if (existingDocument?.fileUri) {
             return {
@@ -333,6 +372,10 @@ export default function App() {
         claims: remoteClaims,
       }));
     } catch (error) {
+      if (isTransientNetworkError(error)) {
+        await recordDiagnostic('cloud sync', 'Cloud sync skipped because the device could not reach the server.');
+        return;
+      }
       void recordError('cloud sync', error);
     }
   });
@@ -807,9 +850,29 @@ export default function App() {
   const openGalleryPicker = async () => {
     await recordDiagnostic('gallery', 'Requesting photo library permission');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    await recordDiagnostic(
+      'gallery',
+      `Photo library permission result | granted=${permission.granted ? 'yes' : 'no'} | canAskAgain=${permission.canAskAgain ? 'yes' : 'no'}`,
+    );
     if (!permission.granted) {
       await recordDiagnostic('gallery', 'Photo library permission denied');
-      Alert.alert('Photos permission needed', 'Allow photo access to import a receipt or invoice image.');
+      Alert.alert(
+        'Photos permission needed',
+        permission.canAskAgain
+          ? 'Allow photo access to import a receipt or invoice image.'
+          : 'Photo access is blocked for this app. Open settings and allow access to continue.',
+        permission.canAskAgain
+          ? [{ text: 'OK' }]
+          : [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open settings',
+                onPress: () => {
+                  void Linking.openSettings();
+                },
+              },
+            ],
+      );
       return;
     }
 
@@ -817,15 +880,25 @@ export default function App() {
     const pickerOptions: any = {
       mediaTypes: ['images'],
       allowsEditing: false,
+      allowsMultipleSelection: false,
       quality: 0.8,
       exif: false,
-      selectionLimit: Platform.OS === 'android' ? 2 : 1,
+      ...(Platform.OS === 'android' ? { legacy: true } : {}),
     };
     const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
+    await recordDiagnostic(
+      'gallery',
+      `Image library returned | canceled=${result.canceled ? 'yes' : 'no'} | assets=${result.assets?.length ?? 0}`,
+    );
 
     try {
-      if (!result.canceled) {
+      if (!result.canceled && result.assets?.length) {
         const asset = result.assets[0];
+        if (!asset.uri) {
+          await recordDiagnostic('gallery', 'Selected image did not provide a usable URI');
+          Alert.alert('Import failed', 'The selected image did not provide a usable file path.');
+          return;
+        }
         await recordDiagnostic(
           'gallery',
           `Image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri ?? 'missing-uri'}`,
@@ -840,6 +913,9 @@ export default function App() {
         await recordDiagnostic('gallery', 'Manual draft document built');
         schedulePreparedDocumentCommit(nextDocument, 'gallery');
         await recordDiagnostic('gallery', 'Document scheduled for deferred state commit');
+      } else if (!result.canceled) {
+        await recordDiagnostic('gallery', 'Image picker returned without assets');
+        Alert.alert('Import failed', 'No image was returned from the gallery picker.');
       } else {
         await recordDiagnostic('gallery', 'Image selection canceled');
       }
@@ -2079,6 +2155,7 @@ function DocumentSheet({
   const [vatInput, setVatInput] = useState('0.00');
   const [selectedTaxRate, setSelectedTaxRate] = useState<UkTaxRate>('No VAT');
   const [taxDropdownOpen, setTaxDropdownOpen] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
     if (!document) {
@@ -2089,6 +2166,7 @@ function DocumentSheet({
     setVatInput(formatMoneyInput(document.vatAmount ?? document.taxAmount));
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setTaxDropdownOpen(false);
+    setPreviewVisible(false);
   }, [document]);
 
   if (!document) {
@@ -2107,20 +2185,29 @@ function DocumentSheet({
           : 'Extraction finished.';
 
   return (
-    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.documentSheet}>
-          <View style={styles.documentSheetHandle} />
-          {hasPreviewImage ? (
-            <Image
-              source={{ uri: document.fileUri }}
-              fadeDuration={0}
-              resizeMethod="resize"
-              resizeMode="contain"
-              style={styles.documentSheetPreview}
-            />
-          ) : null}
+    <>
+      <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetOverlay} onPress={onClose} />
+          <View style={styles.documentSheet}>
+            <View style={styles.documentSheetHandle} />
+            <ScrollView
+              style={styles.documentSheetScroll}
+              contentContainerStyle={styles.documentSheetScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {hasPreviewImage ? (
+                <Pressable style={styles.documentSheetPreviewButton} onPress={() => setPreviewVisible(true)}>
+                  <Image
+                    source={{ uri: document.fileUri }}
+                    fadeDuration={0}
+                    resizeMethod="resize"
+                    resizeMode="contain"
+                    style={styles.documentSheetPreview}
+                  />
+                  <Text style={styles.documentSheetPreviewHint}>Tap to view full image</Text>
+                </Pressable>
+              ) : null}
           <Text style={styles.documentSheetTitle}>{document.title}</Text>
           <Text style={styles.documentSheetMeta}>{document.supplier}</Text>
           <Text style={styles.documentSheetAmount}>£{document.amount.toFixed(2)}</Text>
@@ -2183,7 +2270,7 @@ function DocumentSheet({
               <Text style={styles.taxSaveButtonText}>Save tax values</Text>
             </Pressable>
           </View>
-          <View style={styles.documentSheetActions}>
+              <View style={styles.documentSheetActions}>
             <Pressable style={styles.sheetActionButton} onPress={onMarkReviewed}>
               <Text style={styles.sheetActionText}>Mark reviewed</Text>
             </Pressable>
@@ -2198,10 +2285,28 @@ function DocumentSheet({
             <Pressable style={[styles.sheetActionButton, styles.sheetActionDanger]} onPress={onDelete}>
               <Text style={styles.sheetActionDangerText}>Delete</Text>
             </Pressable>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+      <Modal visible={previewVisible} transparent animationType="fade" onRequestClose={() => setPreviewVisible(false)}>
+        <View style={styles.previewFullscreenBackdrop}>
+          <Pressable style={styles.previewFullscreenClose} onPress={() => setPreviewVisible(false)}>
+            <Ionicons name="close" size={28} color={colors.white} />
+          </Pressable>
+          {hasPreviewImage ? (
+            <Image
+              source={{ uri: document.fileUri }}
+              fadeDuration={0}
+              resizeMethod="resize"
+              resizeMode="contain"
+              style={styles.previewFullscreenImage}
+            />
+          ) : null}
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -3132,6 +3237,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 38,
+    maxHeight: '92%',
+  },
+  documentSheetScroll: {
+    flexGrow: 0,
+  },
+  documentSheetScrollContent: {
+    paddingBottom: 8,
   },
   documentSheetHandle: {
     alignSelf: 'center',
@@ -3146,12 +3258,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.nearBlack,
   },
+  documentSheetPreviewButton: {
+    marginBottom: 18,
+  },
   documentSheetPreview: {
     width: '100%',
-    height: 220,
+    height: 180,
     borderRadius: 18,
     backgroundColor: colors.band,
-    marginBottom: 18,
+    overflow: 'hidden',
+  },
+  documentSheetPreviewHint: {
+    marginTop: 8,
+    fontSize: 13,
+    color: colors.mutedText,
+    textAlign: 'center',
   },
   documentSheetMeta: {
     marginTop: 6,
@@ -3262,6 +3383,30 @@ const styles = StyleSheet.create({
   documentSheetActions: {
     marginTop: 24,
     gap: 12,
+  },
+  previewFullscreenBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.94)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 32,
+  },
+  previewFullscreenClose: {
+    position: 'absolute',
+    top: 48,
+    right: 22,
+    zIndex: 2,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewFullscreenImage: {
+    width: '100%',
+    height: '88%',
   },
   sheetActionButton: {
     paddingVertical: 15,
