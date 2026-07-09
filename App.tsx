@@ -1761,8 +1761,10 @@ function DocumentRow({
             <View style={styles.documentDot} />
           </View>
         )}
-        <View>
-          <Text style={styles.documentTitle}>{document.title}</Text>
+        <View style={styles.documentText}>
+          <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
+            {document.title}
+          </Text>
           <Text style={[styles.documentAmount, isProcessing && styles.documentAmountPending]}>{`£${document.amount.toFixed(2)}`}</Text>
           {extractionStatusText ? <Text style={styles.documentStatusText}>{extractionStatusText}</Text> : null}
         </View>
@@ -2598,6 +2600,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     flex: 1,
+    minWidth: 0,
+    paddingRight: 10,
+  },
+  documentText: {
+    flex: 1,
+    minWidth: 0,
   },
   documentThumb: {
     width: 52,
@@ -2623,6 +2631,8 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: '700',
     color: colors.nearBlack,
+    flexShrink: 1,
+    lineHeight: 24,
   },
   documentAmount: {
     marginTop: 8,
@@ -2638,6 +2648,8 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
   },
   documentRight: {
+    width: 92,
+    flexShrink: 0,
     alignItems: 'flex-end',
     gap: 12,
   },
