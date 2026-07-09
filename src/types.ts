@@ -59,6 +59,7 @@ export interface ExpenseDocument {
     amount: number | null;
   }>;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Claim {

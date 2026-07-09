@@ -94,6 +94,7 @@ export const buildDraftDocument = async ({
     lineItems: extracted.lineItems ?? [],
     taxBreakdown: extracted.taxBreakdown ?? [],
     createdAt: now,
+    updatedAt: now,
   };
 };
 

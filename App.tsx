@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState as RNAppState,
+  FlatList,
   Image,
   InteractionManager,
   Linking,
@@ -151,6 +152,7 @@ const buildManualDraftDocument = ({
     lineItems: [],
     taxBreakdown: [],
     createdAt: now,
+    updatedAt: now,
   };
 };
 
@@ -180,6 +182,7 @@ const applyExtractedDocumentDraft = (
   needsReview: extracted.needsReview ?? true,
   lineItems: extracted.lineItems ?? [],
   taxBreakdown: extracted.taxBreakdown ?? [],
+  updatedAt: new Date().toISOString(),
   cloudReceiptId: extracted.cloudReceiptId ?? document.cloudReceiptId,
   storageKey: extracted.storageKey ?? document.storageKey,
   storageBucket: extracted.storageBucket ?? document.storageBucket,
@@ -818,17 +821,12 @@ export default function App() {
 
       handledGalleryAssetRef.current = assetKey;
       awaitingGalleryResultRef.current = false;
-      const preparedAsset = await prepareImportedImageForApp({
-        id: `gallery-${Date.now()}`,
-        uri: asset.uri,
-        fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
-      });
       await recordDiagnostic('gallery', `${origin} image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri}`);
-      const nextDocument = buildManualDraftDocument({
+      const nextDocument = await prepareManualDocument({
         source: 'gallery',
         type: captureType,
-        uri: preparedAsset.uri,
-        fileName: preparedAsset.fileName,
+        uri: asset.uri,
+        fileName: asset.fileName ?? `${captureType}-${Date.now()}.jpg`,
         ...getCurrentCaptureContext(),
       });
       await recordDiagnostic('gallery', `Manual draft document built from ${origin}`);
@@ -1139,10 +1137,11 @@ export default function App() {
   });
 
   const updateDocumentStatus = (documentId: string, status: ExpenseDocument['status']) => {
+    const updatedAt = new Date().toISOString();
     updateState((current) => ({
       ...current,
       documents: current.documents.map((document) =>
-        document.id === documentId ? { ...document, status } : document,
+        document.id === documentId ? { ...document, status, updatedAt } : document,
       ),
     }));
   };
@@ -1151,10 +1150,11 @@ export default function App() {
     documentId: string,
     taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
   ) => {
+    const updatedAt = new Date().toISOString();
     updateState((current) => ({
       ...current,
       documents: current.documents.map((document) =>
-        document.id === documentId ? { ...document, ...taxFields, needsReview: true } : document,
+        document.id === documentId ? { ...document, ...taxFields, needsReview: true, updatedAt } : document,
       ),
     }));
   };
@@ -1507,19 +1507,23 @@ function CostsScreen({
   }
 
   return (
-    <View>
-      <View style={styles.dayHeader}>
-        <Text style={styles.dayHeaderText}>Today</Text>
-      </View>
-      {documents.map((document) => (
+    <FlatList
+      data={documents}
+      keyExtractor={(item) => item.id.toString()}
+      scrollEnabled={false}
+      ListHeaderComponent={
+        <View style={styles.dayHeader}>
+          <Text style={styles.dayHeaderText}>Today</Text>
+        </View>
+      }
+      renderItem={({ item }) => (
         <DocumentRow
-          key={document.id}
-          document={document}
-          onPress={() => onOpenDocument(document.id)}
-          onLongPress={() => onDeleteDocument(document)}
+          document={item}
+          onPress={() => onOpenDocument(item.id)}
+          onLongPress={() => onDeleteDocument(item)}
         />
-      ))}
-    </View>
+      )}
+    />
   );
 }
 
@@ -1547,16 +1551,18 @@ function SalesScreen({
   }
 
   return (
-    <View>
-      {documents.map((document) => (
+    <FlatList
+      data={documents}
+      keyExtractor={(item) => item.id.toString()}
+      scrollEnabled={false}
+      renderItem={({ item }) => (
         <DocumentRow
-          key={document.id}
-          document={document}
-          onPress={() => onOpenDocument(document.id)}
-          onLongPress={() => onDeleteDocument(document)}
+          document={item}
+          onPress={() => onOpenDocument(item.id)}
+          onLongPress={() => onDeleteDocument(item)}
         />
-      ))}
-    </View>
+      )}
+    />
   );
 }
 
@@ -1974,7 +1980,11 @@ const DocumentRow = memo(function DocumentRow({
     </Pressable>
   );
 }, (previousProps, nextProps) =>
-  previousProps.document === nextProps.document && previousProps.compact === nextProps.compact,
+  previousProps.compact === nextProps.compact &&
+  previousProps.document.id === nextProps.document.id &&
+  previousProps.document.status === nextProps.document.status &&
+  previousProps.document.updatedAt === nextProps.document.updatedAt &&
+  previousProps.document.fileUri === nextProps.document.fileUri,
 );
 
 function StatusPill({ status }: { status: ExpenseDocument['status'] }) {

@@ -234,5 +234,6 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     lineItems: receipt.lineItems,
     taxBreakdown: receipt.taxBreakdown,
     createdAt: receipt.createdAt,
+    updatedAt: receipt.createdAt,
   };
 }

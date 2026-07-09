@@ -116,6 +116,7 @@ const normalizeState = (saved: Partial<AppState>): AppState => ({
     taxRateApplied: document.taxRateApplied ?? 'No VAT',
     lineItems: document.lineItems ?? [],
     taxBreakdown: document.taxBreakdown ?? [],
+    updatedAt: document.updatedAt ?? document.createdAt ?? new Date().toISOString(),
   })),
   claims: saved.claims ?? [],
   settings: {
