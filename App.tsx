@@ -525,7 +525,7 @@ export default function App() {
 
         const asset = pendingResult.assets[0];
         await recordDiagnostic('gallery', `Recovered pending picker result: ${asset.fileName ?? 'unnamed'}`);
-        const nextDocument = await prepareManualDocument({
+        const nextDocument = buildManualDraftDocument({
           source: 'gallery',
           type: captureType,
           uri: asset.uri,
@@ -814,7 +814,7 @@ export default function App() {
           'gallery',
           `Image selected: ${asset.fileName ?? 'unnamed'} | uri=${asset.uri ?? 'missing-uri'}`,
         );
-        const nextDocument = await prepareManualDocument({
+        const nextDocument = buildManualDraftDocument({
           source: 'gallery',
           type: captureType,
           uri: asset.uri,

@@ -24,7 +24,7 @@ export const extractionLooksUnreadable = (input: {
   return (
     input.needsReview === true &&
     (input.amount ?? 0) === 0 &&
-    /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount/.test(
+    /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount|blank image|blank file|no receipt visible|no invoice visible|not clearly visible/.test(
       noteText,
     )
   );
