@@ -223,11 +223,31 @@ const isTransientNetworkError = (error: unknown) => {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocuments: ExpenseDocument[]) => {
-  const retainedLocalDocuments = currentDocuments.filter((document) => !document.cloudReceiptId);
   const cloudReceiptIds = new Set(cloudDocuments.map((document) => document.cloudReceiptId).filter(Boolean));
-  const dedupedLocalDocuments = retainedLocalDocuments.filter((document) => !cloudReceiptIds.has(document.cloudReceiptId));
+  const retainedLocalDocuments = currentDocuments.filter(
+    (document) => !document.cloudReceiptId || !cloudReceiptIds.has(document.cloudReceiptId),
+  );
+  const localCloudDocuments = new Map(
+    currentDocuments
+      .filter((document) => Boolean(document.cloudReceiptId))
+      .map((document) => [document.cloudReceiptId, document] as const),
+  );
+  const mergedCloudDocuments = cloudDocuments.map((document) => {
+    const localDocument = document.cloudReceiptId ? localCloudDocuments.get(document.cloudReceiptId) : undefined;
+    if (!localDocument) {
+      return document;
+    }
 
-  return [...dedupedLocalDocuments, ...cloudDocuments].sort((left, right) =>
+    return {
+      ...document,
+      id: localDocument.id,
+      fileUri: localDocument.fileUri ?? document.fileUri,
+      source: localDocument.source,
+      createdAt: localDocument.createdAt,
+    };
+  });
+
+  return [...retainedLocalDocuments, ...mergedCloudDocuments].sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
   );
 };
