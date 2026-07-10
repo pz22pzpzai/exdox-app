@@ -263,6 +263,32 @@ const DocumentThumbnail = memo(function DocumentThumbnail({
   previousProps.fileUri === nextProps.fileUri && previousProps.hasPreviewImage === nextProps.hasPreviewImage,
 );
 
+const DocumentSheetPreviewImage = memo(function DocumentSheetPreviewImage({
+  fileUri,
+  fullScreen = false,
+}: {
+  fileUri?: string;
+  fullScreen?: boolean;
+}) {
+  const source = useMemo(() => (fileUri ? { uri: fileUri } : null), [fileUri]);
+
+  if (!source) {
+    return null;
+  }
+
+  return (
+    <Image
+      source={source}
+      fadeDuration={0}
+      resizeMethod="resize"
+      resizeMode="contain"
+      style={fullScreen ? styles.previewFullscreenImage : styles.documentSheetPreview}
+    />
+  );
+}, (previousProps, nextProps) =>
+  previousProps.fileUri === nextProps.fileUri && previousProps.fullScreen === nextProps.fullScreen,
+);
+
 export default function App() {
   const hasLoggedLaunchRef = useRef(false);
   const hasRecoveredPickerResultRef = useRef(false);
@@ -2316,13 +2342,7 @@ function DocumentSheet({
                     });
                   }}
                 >
-                  <Image
-                    source={{ uri: document.fileUri }}
-                    fadeDuration={0}
-                    resizeMethod="resize"
-                    resizeMode="contain"
-                    style={styles.documentSheetPreview}
-                  />
+                  <DocumentSheetPreviewImage fileUri={document.fileUri} />
                   <Text style={styles.documentSheetPreviewHint}>Tap to view full image</Text>
                 </Pressable>
               ) : null}
@@ -2421,13 +2441,7 @@ function DocumentSheet({
             <Ionicons name="close" size={28} color={colors.white} />
           </Pressable>
           {hasPreviewImage ? (
-            <Image
-              source={{ uri: document.fileUri }}
-              fadeDuration={0}
-              resizeMethod="resize"
-              resizeMode="contain"
-              style={styles.previewFullscreenImage}
-            />
+            <DocumentSheetPreviewImage fileUri={document.fileUri} fullScreen />
           ) : null}
         </View>
       </Modal>
