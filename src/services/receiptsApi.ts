@@ -11,6 +11,7 @@ type ReceiptApiResponse = {
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
     claimId: number | null;
+    status: string | null;
     sourceFilename: string;
     s3Bucket: string;
     s3Key: string;
@@ -237,6 +238,7 @@ export async function fetchCloudReceiptAssetUrl(receiptId: number) {
 }
 
 function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): ExpenseDocument {
+  const status = mapCloudReceiptStatus(receipt.status);
   return {
     id: `cloud-${receipt.id}`,
     type: receipt.documentType === 'invoice' ? 'invoice' : 'receipt',
@@ -250,7 +252,7 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     taxRateApplied: receipt.taxRateApplied ?? 'No VAT',
     taxAmount: receipt.totalTaxAmount ?? 0,
     currency: receipt.currency ?? 'GBP',
-    status: 'awaiting_review',
+    status,
     category: receipt.documentType === 'invoice' ? 'Accounts Payable' : 'General',
     date: receipt.invoiceDate ?? receipt.createdAt,
     dueDate: receipt.dueDate ?? undefined,
@@ -272,4 +274,18 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     createdAt: receipt.createdAt,
     updatedAt: receipt.createdAt,
   };
+}
+
+function mapCloudReceiptStatus(status: string | null | undefined): ExpenseDocument['status'] {
+  const normalized = (status ?? '').trim().toLowerCase();
+  if (normalized === 'ready' || normalized === 'ready_to_submit' || normalized === 'reviewed') {
+    return 'ready_to_submit';
+  }
+  if (normalized === 'submitted') {
+    return 'submitted';
+  }
+  if (normalized === 'paid') {
+    return 'paid';
+  }
+  return 'awaiting_review';
 }
