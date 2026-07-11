@@ -191,7 +191,7 @@ const applyExtractedDocumentDraft = (
   supplier: extracted.supplier,
   amount: extracted.amount ?? document.amount,
   netAmount: extracted.netAmount ?? document.netAmount ?? extracted.amount ?? document.amount,
-  vatAmount: extracted.vatAmount ?? document.vatAmount ?? extracted.taxAmount ?? document.taxAmount,
+  vatAmount: extracted.vatAmount ?? extracted.taxAmount ?? document.vatAmount ?? document.taxAmount,
   taxRateApplied: extracted.taxRateApplied ?? document.taxRateApplied ?? 'No VAT',
   taxAmount: extracted.taxAmount ?? document.taxAmount,
   currency: extracted.currency ?? document.currency,
@@ -3223,7 +3223,15 @@ function DocumentSheet({
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setTaxDropdownOpen(false);
     setPreviewVisible(false);
-  }, [document?.id]);
+  }, [
+    document?.id,
+    document?.updatedAt,
+    document?.amount,
+    document?.netAmount,
+    document?.vatAmount,
+    document?.taxAmount,
+    document?.taxRateApplied,
+  ]);
 
   if (!document) {
     return null;
