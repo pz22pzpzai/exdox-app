@@ -11,11 +11,13 @@ import {
   NativeModules,
   Platform,
   Pressable,
+  Share,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  useColorScheme,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -35,6 +37,7 @@ import {
   fetchCloudReceiptAssetUrl,
   fetchCloudReceipts,
   fetchExpenseClaims,
+  updateCloudReceipt,
 } from './src/services/receiptsApi';
 import { setSessionToken } from './src/services/session';
 import { colors, radius, spacing } from './src/theme';
@@ -48,6 +51,7 @@ import {
   PaymentMethod,
   UkTaxRate,
   UserSettings,
+  Vehicle,
   WorkspaceContext,
 } from './src/types';
 import { clearAuthSession, loadAuthSession, saveAuthSession } from './src/utils/authStorage';
@@ -66,6 +70,18 @@ import {
 
 type MainTab = 'costs' | 'sales' | 'claims' | 'more';
 type MoreSheetTarget = 'menu' | 'capture_actions';
+type SettingsPanelTarget =
+  | 'business_admin'
+  | 'logins'
+  | 'extract_email'
+  | 'vehicles'
+  | 'analytics'
+  | 'team_exports'
+  | 'vault'
+  | 'team_admin';
+type StatusFilter = 'all' | ExpenseDocument['status'];
+type SortMode = 'newest' | 'oldest' | 'amount_high' | 'amount_low';
+type ThemeOption = UserSettings['theme'];
 
 const brandLogo = require('./assets/exdox-logo.png');
 const brandMark = require('./assets/exdox-mark.png');
@@ -255,6 +271,53 @@ const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocum
 const galleryResultAssetName = (asset: { uri?: string | null; fileName?: string | null; assetId?: string | null }) =>
   asset.assetId ?? asset.uri ?? asset.fileName ?? `gallery-${Date.now()}`;
 
+const statusFilterOptions: Array<{ label: string; value: StatusFilter }> = [
+  { label: 'All statuses', value: 'all' },
+  { label: 'To review', value: 'awaiting_review' },
+  { label: 'Reviewed', value: 'ready_to_submit' },
+  { label: 'Submitted', value: 'submitted' },
+  { label: 'Paid', value: 'paid' },
+];
+
+const sortOptions: Array<{ label: string; value: SortMode }> = [
+  { label: 'Newest first', value: 'newest' },
+  { label: 'Oldest first', value: 'oldest' },
+  { label: 'Amount high to low', value: 'amount_high' },
+  { label: 'Amount low to high', value: 'amount_low' },
+];
+
+const themeOptions: Array<{ label: string; value: ThemeOption }> = [
+  { label: 'System default', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
+
+const formatCurrency = (amount: number, currency = 'GBP') =>
+  new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+
+const getStatusLabel = (status: ExpenseDocument['status']) =>
+  status === 'awaiting_review'
+    ? 'To review'
+    : status === 'ready_to_submit'
+      ? 'Reviewed'
+      : status === 'submitted'
+        ? 'Submitted'
+        : 'Paid';
+
+const buildInboundEmailAddress = (organisationName: string, organisationId: number) => {
+  const slug = organisationName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, 18);
+  return `${slug || 'workspace'}-${organisationId}@exdox.co.uk`;
+};
+
 const DocumentThumbnail = memo(function DocumentThumbnail({
   fileUri,
   hasPreviewImage,
@@ -310,6 +373,7 @@ const DocumentSheetPreviewImage = memo(function DocumentSheetPreviewImage({
 );
 
 export default function App() {
+  const systemTheme = useColorScheme();
   const hasLoggedLaunchRef = useRef(false);
   const hasRecoveredPickerResultRef = useRef(false);
   const hasRestoredStateRef = useRef(false);
@@ -336,8 +400,32 @@ export default function App() {
   const [diagnosticLogs, setDiagnosticLogs] = useState<AppErrorLog[]>([]);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [settingsPanelTarget, setSettingsPanelTarget] = useState<SettingsPanelTarget | null>(null);
+  const [claimComposerVisible, setClaimComposerVisible] = useState(false);
+  const [claimTitleInput, setClaimTitleInput] = useState('');
+  const [claimStartDateInput, setClaimStartDateInput] = useState(new Date().toISOString().slice(0, 10));
+  const [claimEndDateInput, setClaimEndDateInput] = useState(new Date().toISOString().slice(0, 10));
+  const [mileageVisible, setMileageVisible] = useState(false);
+  const [mileageStartInput, setMileageStartInput] = useState('');
+  const [mileageEndInput, setMileageEndInput] = useState('');
+  const [mileageMilesInput, setMileageMilesInput] = useState('');
+  const [themeVisible, setThemeVisible] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('newest');
+  const [bulkSelectionEnabled, setBulkSelectionEnabled] = useState(false);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
+  const [vehicleNameInput, setVehicleNameInput] = useState('');
+  const [vehicleRegistrationInput, setVehicleRegistrationInput] = useState('');
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const isAdmin = authSession?.user.role === 'Business_Admin';
+  const effectiveTheme: ThemeOption =
+    appState.settings.theme === 'system' ? (systemTheme === 'dark' ? 'dark' : 'light') : appState.settings.theme;
+  const shellBackgroundStyle = effectiveTheme === 'dark' ? styles.shellDark : null;
+  const shellTextStyle = effectiveTheme === 'dark' ? styles.shellTextDark : null;
 
   useEffect(() => {
     let mounted = true;
@@ -490,6 +578,40 @@ export default function App() {
     setActiveTab('costs');
     await clearAuthSession();
   });
+
+  const syncDocumentToCloud = useEffectEvent(
+    async (
+      documentId: string,
+      updates: Partial<
+        Pick<
+          ExpenseDocument,
+          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
+        >
+      >,
+    ) => {
+      const document = appState.documents.find((entry) => entry.id === documentId);
+      if (!document?.cloudReceiptId) {
+        return;
+      }
+
+      await updateCloudReceipt(document.cloudReceiptId, {
+        supplier: updates.supplier ?? document.supplier,
+        date: updates.date ?? document.date,
+        dueDate: updates.dueDate ?? document.dueDate,
+        invoiceNumber: updates.invoiceNumber ?? document.invoiceNumber,
+        category: updates.category ?? document.category,
+        netAmount: updates.netAmount ?? document.netAmount,
+        vatAmount: updates.vatAmount ?? document.vatAmount,
+        amount: updates.amount ?? document.amount,
+        taxRateApplied: updates.taxRateApplied ?? document.taxRateApplied,
+        status: updates.status ?? document.status,
+      });
+
+      if (authSession) {
+        await syncCloudWorkspace(authSession);
+      }
+    },
+  );
 
   const submitAuth = useEffectEvent(async () => {
     if (authMode === 'reset') {
@@ -685,6 +807,11 @@ export default function App() {
   }, [cameraVisible, pendingGalleryOpen, recordDiagnostic]);
 
   useEffect(() => {
+    setBulkSelectionEnabled(false);
+    setSelectedDocumentIds([]);
+  }, [activeTab]);
+
+  useEffect(() => {
     const errorUtils = (
       globalThis as typeof globalThis & {
         ErrorUtils?: {
@@ -777,16 +904,29 @@ export default function App() {
         }
 
         if (!term) {
-          return true;
+          return statusFilter === 'all' ? true : document.status === statusFilter;
         }
 
-        return [document.title, document.supplier, document.notes, document.category]
+        const matchesSearch = [document.title, document.supplier, document.notes, document.category]
           .join(' ')
           .toLowerCase()
           .includes(term);
+        const matchesStatus = statusFilter === 'all' ? true : document.status === statusFilter;
+        return matchesSearch && matchesStatus;
       })
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }, [activeTab, appState.documents, deferredSearch]);
+      .sort((left, right) => {
+        if (sortMode === 'oldest') {
+          return left.createdAt.localeCompare(right.createdAt);
+        }
+        if (sortMode === 'amount_high') {
+          return right.amount - left.amount;
+        }
+        if (sortMode === 'amount_low') {
+          return left.amount - right.amount;
+        }
+        return right.createdAt.localeCompare(left.createdAt);
+      });
+  }, [activeTab, appState.documents, deferredSearch, sortMode, statusFilter]);
 
   const selectedDocument = useMemo(
     () => appState.documents.find((document) => document.id === selectedDocumentId) ?? null,
@@ -797,6 +937,43 @@ export default function App() {
     () => [...appState.claims].sort((left, right) => right.name.localeCompare(left.name)),
     [appState.claims],
   );
+
+  const processingAlerts = useMemo(
+    () =>
+      appState.documents
+        .filter((document) => document.extractionStatus !== 'complete' || document.needsReview)
+        .slice(0, 20)
+        .map((document) => ({
+          id: document.id,
+          title: document.title,
+          message:
+            document.extractionStatus === 'pending'
+              ? 'Still processing'
+              : document.extractionStatus === 'failed'
+                ? 'Needs another look'
+                : 'Ready for review',
+          createdAt: document.updatedAt ?? document.createdAt,
+        })),
+    [appState.documents],
+  );
+
+  const analyticsSummary = useMemo(() => {
+    const total = filteredDocuments.reduce((sum, document) => sum + document.amount, 0);
+    const vatTotal = filteredDocuments.reduce((sum, document) => sum + document.vatAmount, 0);
+    return {
+      total,
+      vatTotal,
+      reviewCount: appState.documents.filter((document) => document.status === 'awaiting_review').length,
+      submittedCount: appState.documents.filter((document) => document.status === 'submitted').length,
+    };
+  }, [appState.documents, filteredDocuments]);
+
+  const inboundEmailAddress = useMemo(() => {
+    if (!authSession) {
+      return '';
+    }
+    return buildInboundEmailAddress(authSession.user.fullName || workspaceName, authSession.user.organisationId);
+  }, [authSession]);
 
   const claimableDocuments = useMemo(
     () =>
@@ -1167,11 +1344,6 @@ export default function App() {
     }
   });
 
-  const handleMileageClaim = () => {
-    setSheetTarget(null);
-    Alert.alert('Mileage tracking coming soon', 'The mileage claim flow is reserved for the next rollout.');
-  };
-
   const deleteDocument = useEffectEvent(async (document: ExpenseDocument) => {
     if (document.claimId) {
       Alert.alert(
@@ -1217,7 +1389,7 @@ export default function App() {
     );
   });
 
-  const updateDocumentStatus = (documentId: string, status: ExpenseDocument['status']) => {
+  const updateDocumentStatus = useEffectEvent(async (documentId: string, status: ExpenseDocument['status']) => {
     const updatedAt = new Date().toISOString();
     updateState((current) => ({
       ...current,
@@ -1225,9 +1397,15 @@ export default function App() {
         document.id === documentId ? { ...document, status, updatedAt } : document,
       ),
     }));
-  };
+    try {
+      await syncDocumentToCloud(documentId, { status });
+    } catch (error) {
+      void recordError('update document status', error);
+      Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
+    }
+  });
 
-  const updateDocumentTaxFields = (
+  const updateDocumentTaxFields = useEffectEvent(async (
     documentId: string,
     taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
   ) => {
@@ -1238,7 +1416,13 @@ export default function App() {
         document.id === documentId ? { ...document, ...taxFields, needsReview: true, updatedAt } : document,
       ),
     }));
-  };
+    try {
+      await syncDocumentToCloud(documentId, taxFields);
+    } catch (error) {
+      void recordError('update tax fields', error);
+      Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
+    }
+  });
 
   const createClaimFromReceipt = useEffectEvent(async (document: ExpenseDocument) => {
     if (!authSession) {
@@ -1268,22 +1452,6 @@ export default function App() {
     }
   });
 
-  const handleCreateClaim = useEffectEvent(async () => {
-    try {
-      await createCloudClaim({
-        name: `Expense Claim ${new Date().toLocaleDateString('en-GB')}`,
-        description: 'Created from the expense claims tab.',
-        currency: 'GBP',
-      });
-      if (authSession) {
-        await syncCloudWorkspace(authSession);
-      }
-    } catch (error) {
-      void recordError('handleCreateClaim', error);
-      Alert.alert('Claim failed', error instanceof Error ? error.message : 'Could not create a new claim.');
-    }
-  });
-
   const handleAttachToClaim = useEffectEvent(async (claim: Claim, document: ExpenseDocument) => {
     if (!authSession) {
       return;
@@ -1305,20 +1473,187 @@ export default function App() {
     }
   });
 
+  const handleRefreshFeed = useEffectEvent(async () => {
+    setHeaderMenuVisible(false);
+    if (!authSession) {
+      return;
+    }
+    try {
+      await syncCloudWorkspace(authSession);
+    } catch (error) {
+      void recordError('refresh feed', error);
+    }
+  });
+
+  const handleOpenBulkSelection = () => {
+    setHeaderMenuVisible(false);
+    setBulkSelectionEnabled(true);
+    setSelectedDocumentIds([]);
+  };
+
+  const toggleBulkDocumentSelection = (documentId: string) => {
+    setSelectedDocumentIds((current) =>
+      current.includes(documentId) ? current.filter((id) => id !== documentId) : [...current, documentId],
+    );
+  };
+
+  const clearBulkSelection = () => {
+    setBulkSelectionEnabled(false);
+    setSelectedDocumentIds([]);
+  };
+
+  const handleBulkMarkReviewed = useEffectEvent(async () => {
+    const targets = appState.documents.filter((document) => selectedDocumentIds.includes(document.id));
+    for (const document of targets) {
+      await updateDocumentStatus(document.id, 'ready_to_submit');
+    }
+    clearBulkSelection();
+  });
+
+  const handleBulkDelete = () => {
+    const targets = appState.documents.filter((document) => selectedDocumentIds.includes(document.id));
+    if (!targets.length) {
+      return;
+    }
+
+    Alert.alert('Delete selected items', `Delete ${targets.length} selected item${targets.length === 1 ? '' : 's'}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          targets.forEach((document) => {
+            void deleteDocument(document);
+          });
+          clearBulkSelection();
+        },
+      },
+    ]);
+  };
+
+  const handleOpenClaimComposer = () => {
+    setClaimTitleInput(`Expense Claim ${new Date().toLocaleDateString('en-GB')}`);
+    setClaimStartDateInput(new Date().toISOString().slice(0, 10));
+    setClaimEndDateInput(new Date().toISOString().slice(0, 10));
+    setClaimComposerVisible(true);
+  };
+
+  const submitClaimComposer = useEffectEvent(async () => {
+    try {
+      await createCloudClaim({
+        name: claimTitleInput.trim() || `Expense Claim ${new Date().toLocaleDateString('en-GB')}`,
+        description: `Date range: ${claimStartDateInput} to ${claimEndDateInput}`,
+        currency: 'GBP',
+      });
+      setClaimComposerVisible(false);
+      if (authSession) {
+        await syncCloudWorkspace(authSession);
+      }
+    } catch (error) {
+      void recordError('submit claim composer', error);
+      Alert.alert('Claim failed', error instanceof Error ? error.message : 'Could not create a new claim.');
+    }
+  });
+
+  const submitMileageClaim = useEffectEvent(async () => {
+    const miles = Number.parseFloat(mileageMilesInput);
+    if (!mileageStartInput.trim() || !mileageEndInput.trim() || !Number.isFinite(miles) || miles <= 0) {
+      Alert.alert('Mileage details needed', 'Add the start postcode, end postcode, and total miles.');
+      return;
+    }
+
+    const mileageAmount = Number((miles * 0.45).toFixed(2));
+    try {
+      await createCloudClaim({
+        name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
+        description: `${mileageStartInput.trim()} to ${mileageEndInput.trim()} | ${miles.toFixed(1)} miles | Estimated value ${formatCurrency(mileageAmount)}`,
+        currency: 'GBP',
+      });
+      setMileageVisible(false);
+      setMileageStartInput('');
+      setMileageEndInput('');
+      setMileageMilesInput('');
+      if (authSession) {
+        await syncCloudWorkspace(authSession);
+      }
+    } catch (error) {
+      void recordError('submit mileage claim', error);
+      Alert.alert('Mileage claim failed', error instanceof Error ? error.message : 'Could not create the mileage claim.');
+    }
+  });
+
+  const saveVehicle = () => {
+    const name = vehicleNameInput.trim();
+    const registration = vehicleRegistrationInput.trim().toUpperCase();
+    if (!name || !registration) {
+      Alert.alert('Vehicle details needed', 'Add a vehicle name and registration.');
+      return;
+    }
+
+    updateState((current) => ({
+      ...current,
+      vehicles: editingVehicleId
+        ? current.vehicles.map((vehicle) =>
+            vehicle.id === editingVehicleId ? { ...vehicle, name, registration } : vehicle,
+          )
+        : [...current.vehicles, { id: `vehicle-${Date.now()}`, name, registration }],
+    }));
+    setVehicleNameInput('');
+    setVehicleRegistrationInput('');
+    setEditingVehicleId(null);
+  };
+
+  const editVehicle = (vehicle: Vehicle) => {
+    setEditingVehicleId(vehicle.id);
+    setVehicleNameInput(vehicle.name);
+    setVehicleRegistrationInput(vehicle.registration);
+  };
+
+  const removeVehicle = (vehicleId: string) => {
+    updateState((current) => ({
+      ...current,
+      vehicles: current.vehicles.filter((vehicle) => vehicle.id !== vehicleId),
+    }));
+  };
+
+  const handleTeamExport = useEffectEvent(async () => {
+    const csvRows = [
+      ['Type', 'Supplier', 'Amount', 'Status', 'Date'],
+      ...appState.documents.map((document) => [
+        document.type,
+        document.supplier,
+        document.amount.toFixed(2),
+        getStatusLabel(document.status),
+        document.date,
+      ]),
+    ];
+    const csv = csvRows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+
+    try {
+      await Share.share({
+        title: 'Exdox team export',
+        message: csv,
+      });
+    } catch (error) {
+      void recordError('team export', error);
+      Alert.alert('Export failed', error instanceof Error ? error.message : 'Could not prepare the team export.');
+    }
+  });
+
   if (!isReady) {
     return (
-      <SafeAreaView style={styles.loadingScreen}>
-        <StatusBar style="dark" />
+      <SafeAreaView style={[styles.loadingScreen, shellBackgroundStyle]}>
+        <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
         <Image source={brandBadge} resizeMode="contain" style={styles.loadingLogo} />
-        <Text style={styles.loadingText}>Preparing your workspace...</Text>
+        <Text style={[styles.loadingText, shellTextStyle]}>Preparing your workspace...</Text>
       </SafeAreaView>
     );
   }
 
   if (!authSession) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
+      <SafeAreaView style={[styles.safeArea, shellBackgroundStyle]}>
+        <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
         <AuthScreen
           mode={authMode}
           fullName={authFullName}
@@ -1340,17 +1675,19 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <View style={styles.screen}>
+    <SafeAreaView style={[styles.safeArea, shellBackgroundStyle]}>
+      <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
+      <View style={[styles.screen, shellBackgroundStyle]}>
         <TopHeader
           title={tabTitle}
           subtitle={authSession.user.fullName || authSession.user.email}
-          onOpenMore={() => setSheetTarget('menu')}
+          notificationCount={processingAlerts.length}
+          onOpenNotifications={() => setNotificationsVisible(true)}
+          onOpenMore={() => setHeaderMenuVisible(true)}
         />
 
         {(activeTab === 'costs' || activeTab === 'sales' || activeTab === 'claims') && (
-          <SearchBand value={search} onChangeText={setSearch} />
+          <SearchBand value={search} onChangeText={setSearch} onOpenFilter={() => setFilterVisible(true)} />
         )}
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -1358,6 +1695,9 @@ export default function App() {
             <CostsScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
+              bulkSelectionEnabled={bulkSelectionEnabled}
+              selectedDocumentIds={selectedDocumentIds}
+              onToggleSelect={toggleBulkDocumentSelection}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
@@ -1366,6 +1706,9 @@ export default function App() {
             <SalesScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
+              bulkSelectionEnabled={bulkSelectionEnabled}
+              selectedDocumentIds={selectedDocumentIds}
+              onToggleSelect={toggleBulkDocumentSelection}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
@@ -1375,7 +1718,7 @@ export default function App() {
               claims={claims}
               documents={appState.documents}
               claimableDocuments={claimableDocuments}
-              onCreateClaim={() => void handleCreateClaim()}
+              onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
             />
           )}
@@ -1387,6 +1730,8 @@ export default function App() {
               settings={appState.settings}
               errorLogCount={errorLogs.length}
               onUpdateSetting={updateSettings}
+              onOpenTheme={() => setThemeVisible(true)}
+              onOpenPanel={setSettingsPanelTarget}
               onOpenErrorLog={() => setErrorLogVisible(true)}
               onSignOut={() => void handleSignOut()}
             />
@@ -1421,6 +1766,14 @@ export default function App() {
             setActiveTab('more');
             setSheetTarget(null);
           }}
+          onOpenVault={() => {
+            setSettingsPanelTarget('vault');
+            setSheetTarget(null);
+          }}
+          onOpenTeamAdmin={() => {
+            setSettingsPanelTarget('team_admin');
+            setSheetTarget(null);
+          }}
           onOpenCamera={() => {
             setSheetTarget(null);
             void handleUseCamera();
@@ -1429,7 +1782,10 @@ export default function App() {
             setSheetTarget(null);
             void handlePickImage();
           }}
-          onCreateMileageClaim={handleMileageClaim}
+          onCreateMileageClaim={() => {
+            setSheetTarget(null);
+            setMileageVisible(true);
+          }}
           onAddToVault={() => void handleAddToVault()}
         />
 
@@ -1438,7 +1794,7 @@ export default function App() {
           onClose={() => setSelectedDocumentId(null)}
           onMarkReviewed={() => {
             if (selectedDocument) {
-              updateDocumentStatus(selectedDocument.id, 'ready_to_submit');
+              void updateDocumentStatus(selectedDocument.id, 'ready_to_submit');
             }
           }}
           onAddToClaim={() => {
@@ -1448,12 +1804,12 @@ export default function App() {
           }}
           onUpdateTaxFields={(taxFields) => {
             if (selectedDocument) {
-              updateDocumentTaxFields(selectedDocument.id, taxFields);
+              void updateDocumentTaxFields(selectedDocument.id, taxFields);
             }
           }}
           onMarkSubmitted={() => {
             if (selectedDocument) {
-              updateDocumentStatus(selectedDocument.id, 'submitted');
+              void updateDocumentStatus(selectedDocument.id, 'submitted');
             }
           }}
           onDelete={() => {
@@ -1474,6 +1830,90 @@ export default function App() {
             setDiagnosticLogs([]);
             setErrorLogVisible(false);
           }}
+        />
+
+        <HeaderMenuSheet
+          visible={headerMenuVisible}
+          bulkSelectionEnabled={bulkSelectionEnabled}
+          selectedCount={selectedDocumentIds.length}
+          onClose={() => setHeaderMenuVisible(false)}
+          onSelectMultiple={handleOpenBulkSelection}
+          onRefresh={() => void handleRefreshFeed()}
+          onBulkMarkReviewed={() => void handleBulkMarkReviewed()}
+          onBulkDelete={handleBulkDelete}
+          onClearSelection={clearBulkSelection}
+        />
+
+        <NotificationsSheet
+          visible={notificationsVisible}
+          notifications={processingAlerts}
+          onClose={() => setNotificationsVisible(false)}
+          onOpenDocument={(documentId) => {
+            setNotificationsVisible(false);
+            setSelectedDocumentId(documentId);
+          }}
+        />
+
+        <FilterSheet
+          visible={filterVisible}
+          statusFilter={statusFilter}
+          sortMode={sortMode}
+          onClose={() => setFilterVisible(false)}
+          onSelectStatus={setStatusFilter}
+          onSelectSort={setSortMode}
+        />
+
+        <ClaimComposerSheet
+          visible={claimComposerVisible}
+          title={claimTitleInput}
+          startDate={claimStartDateInput}
+          endDate={claimEndDateInput}
+          onClose={() => setClaimComposerVisible(false)}
+          onChangeTitle={setClaimTitleInput}
+          onChangeStartDate={setClaimStartDateInput}
+          onChangeEndDate={setClaimEndDateInput}
+          onSubmit={() => void submitClaimComposer()}
+        />
+
+        <MileageClaimSheet
+          visible={mileageVisible}
+          startPostcode={mileageStartInput}
+          endPostcode={mileageEndInput}
+          totalMiles={mileageMilesInput}
+          onClose={() => setMileageVisible(false)}
+          onChangeStartPostcode={setMileageStartInput}
+          onChangeEndPostcode={setMileageEndInput}
+          onChangeTotalMiles={setMileageMilesInput}
+          onSubmit={() => void submitMileageClaim()}
+        />
+
+        <ThemeSheet
+          visible={themeVisible}
+          value={appState.settings.theme}
+          onClose={() => setThemeVisible(false)}
+          onSelect={(theme) => {
+            updateSettings('theme', theme);
+            setThemeVisible(false);
+          }}
+        />
+
+        <SettingsPanelSheet
+          visible={Boolean(settingsPanelTarget)}
+          target={settingsPanelTarget}
+          role={authSession.user.role}
+          inboundEmailAddress={inboundEmailAddress}
+          analyticsSummary={analyticsSummary}
+          vehicles={appState.vehicles}
+          vehicleNameInput={vehicleNameInput}
+          vehicleRegistrationInput={vehicleRegistrationInput}
+          editingVehicleId={editingVehicleId}
+          onClose={() => setSettingsPanelTarget(null)}
+          onExport={() => void handleTeamExport()}
+          onChangeVehicleName={setVehicleNameInput}
+          onChangeVehicleRegistration={setVehicleRegistrationInput}
+          onSaveVehicle={saveVehicle}
+          onEditVehicle={editVehicle}
+          onDeleteVehicle={removeVehicle}
         />
 
         <CameraCapture
@@ -1515,10 +1955,14 @@ export default function App() {
 function TopHeader({
   title,
   subtitle,
+  notificationCount,
+  onOpenNotifications,
   onOpenMore,
 }: {
   title: string;
   subtitle: string;
+  notificationCount: number;
+  onOpenNotifications: () => void;
   onOpenMore: () => void;
 }) {
   return (
@@ -1531,7 +1975,14 @@ function TopHeader({
         </View>
       </View>
       <View style={styles.headerActions}>
-        <Ionicons name="notifications-outline" size={24} color={colors.nearBlack} />
+        <Pressable onPress={onOpenNotifications} hitSlop={8} style={styles.headerIconButton}>
+          <Ionicons name="notifications-outline" size={24} color={colors.nearBlack} />
+          {notificationCount ? (
+            <View style={styles.headerNotificationDot}>
+              <Text style={styles.headerNotificationDotText}>{Math.min(notificationCount, 9)}</Text>
+            </View>
+          ) : null}
+        </Pressable>
         <Pressable onPress={onOpenMore} hitSlop={8}>
           <Ionicons name="ellipsis-vertical" size={22} color={colors.nearBlack} />
         </Pressable>
@@ -1543,9 +1994,11 @@ function TopHeader({
 function SearchBand({
   value,
   onChangeText,
+  onOpenFilter,
 }: {
   value: string;
   onChangeText: (value: string) => void;
+  onOpenFilter: () => void;
 }) {
   return (
     <View style={styles.searchBand}>
@@ -1559,7 +2012,9 @@ function SearchBand({
           style={styles.searchInput}
         />
       </View>
-      <Ionicons name="filter-outline" size={24} color={colors.nearBlack} />
+      <Pressable onPress={onOpenFilter} hitSlop={8}>
+        <Ionicons name="filter-outline" size={24} color={colors.nearBlack} />
+      </Pressable>
     </View>
   );
 }
@@ -1567,11 +2022,17 @@ function SearchBand({
 function CostsScreen({
   documents,
   onOpenDocument,
+  bulkSelectionEnabled,
+  selectedDocumentIds,
+  onToggleSelect,
   onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
+  bulkSelectionEnabled: boolean;
+  selectedDocumentIds: string[];
+  onToggleSelect: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
@@ -1600,7 +2061,10 @@ function CostsScreen({
       renderItem={({ item }) => (
         <DocumentRow
           document={item}
-          onPress={() => onOpenDocument(item.id)}
+          selected={selectedDocumentIds.includes(item.id)}
+          selectionMode={bulkSelectionEnabled}
+          onPress={() => (bulkSelectionEnabled ? onToggleSelect(item.id) : onOpenDocument(item.id))}
+          onStatusPress={() => onOpenDocument(item.id)}
           onLongPress={() => onDeleteDocument(item)}
         />
       )}
@@ -1611,11 +2075,17 @@ function CostsScreen({
 function SalesScreen({
   documents,
   onOpenDocument,
+  bulkSelectionEnabled,
+  selectedDocumentIds,
+  onToggleSelect,
   onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
+  bulkSelectionEnabled: boolean;
+  selectedDocumentIds: string[];
+  onToggleSelect: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
@@ -1639,7 +2109,10 @@ function SalesScreen({
       renderItem={({ item }) => (
         <DocumentRow
           document={item}
-          onPress={() => onOpenDocument(item.id)}
+          selected={selectedDocumentIds.includes(item.id)}
+          selectionMode={bulkSelectionEnabled}
+          onPress={() => (bulkSelectionEnabled ? onToggleSelect(item.id) : onOpenDocument(item.id))}
+          onStatusPress={() => onOpenDocument(item.id)}
           onLongPress={() => onDeleteDocument(item)}
         />
       )}
@@ -1840,6 +2313,8 @@ function SettingsScreen({
   settings,
   errorLogCount,
   onUpdateSetting,
+  onOpenTheme,
+  onOpenPanel,
   onOpenErrorLog,
   onSignOut,
 }: {
@@ -1849,6 +2324,8 @@ function SettingsScreen({
   settings: UserSettings;
   errorLogCount: number;
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
+  onOpenTheme: () => void;
+  onOpenPanel: (target: SettingsPanelTarget) => void;
   onOpenErrorLog: () => void;
   onSignOut: () => void;
 }) {
@@ -1867,14 +2344,16 @@ function SettingsScreen({
         </View>
       </View>
 
-      <SettingsLink icon="people-outline" label="Logins" />
-      <SettingsLink icon="mail-outline" label="Extract by email" />
-      <SettingsLink icon="car-outline" label="Vehicles" />
+      {role === 'Business_Admin' ? (
+        <SettingsButton icon="business-outline" label="Business admin access" onPress={() => onOpenPanel('business_admin')} />
+      ) : null}
+      <SettingsButton icon="people-outline" label="Logins" onPress={() => onOpenPanel('logins')} />
+      <SettingsButton icon="mail-outline" label="Extract by email" onPress={() => onOpenPanel('extract_email')} />
+      <SettingsButton icon="car-outline" label="Vehicles" onPress={() => onOpenPanel('vehicles')} />
       {role === 'Business_Admin' ? (
         <>
-          <SettingsLink icon="bar-chart-outline" label="Analytics" />
-          <SettingsLink icon="download-outline" label="Team exports" />
-          <SettingsLink icon="card-outline" label="Billing" />
+          <SettingsButton icon="bar-chart-outline" label="Analytics" onPress={() => onOpenPanel('analytics')} />
+          <SettingsButton icon="download-outline" label="Team exports" onPress={() => onOpenPanel('team_exports')} />
         </>
       ) : null}
       <SettingsButton
@@ -1914,7 +2393,11 @@ function SettingsScreen({
             <Ionicons name="sunny-outline" size={22} color={colors.nearBlack} />
             <Text style={styles.settingLabel}>Theme</Text>
           </View>
-          <Text style={styles.settingValue}>System default</Text>
+          <Pressable onPress={onOpenTheme}>
+            <Text style={styles.settingValue}>
+              {settings.theme === 'system' ? 'System default' : settings.theme === 'light' ? 'Light' : 'Dark'}
+            </Text>
+          </Pressable>
         </View>
         <SettingToggleRow
           icon="notifications-outline"
@@ -1950,21 +2433,6 @@ function SettingToggleRow({
         trackColor={{ false: colors.softBlueGrey, true: colors.softBlueGrey }}
         thumbColor={colors.nearBlack}
       />
-    </View>
-  );
-}
-
-function SettingsLink({
-  icon,
-  label,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-}) {
-  return (
-    <View style={styles.settingsLink}>
-      <Ionicons name={icon} size={24} color={colors.nearBlack} />
-      <Text style={styles.settingsLinkText}>{label}</Text>
     </View>
   );
 }
@@ -2018,13 +2486,19 @@ function BlankPanel({
 const DocumentRow = memo(function DocumentRow({
   document,
   onPress,
+  onStatusPress,
   onLongPress,
   compact = false,
+  selectionMode = false,
+  selected = false,
 }: {
   document: ExpenseDocument;
   onPress: () => void;
+  onStatusPress?: () => void;
   onLongPress?: () => void;
   compact?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
 }) {
   const hasPreviewImage = canPreviewDocumentInline(document);
   const isProcessing = document.extractionStatus === 'pending';
@@ -2039,12 +2513,17 @@ const DocumentRow = memo(function DocumentRow({
 
   return (
     <Pressable
-      style={[styles.documentRow, compact && styles.documentRowCompact]}
+      style={[styles.documentRow, compact && styles.documentRowCompact, selected && styles.documentRowSelected]}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={240}
     >
       <View style={styles.documentLeft}>
+        {selectionMode ? (
+          <View style={[styles.selectionDot, selected && styles.selectionDotActive]}>
+            {selected ? <Ionicons name="checkmark" size={14} color={colors.white} /> : null}
+          </View>
+        ) : null}
         <DocumentThumbnail fileUri={document.fileUri} hasPreviewImage={hasPreviewImage} />
         <View style={styles.documentText}>
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
@@ -2056,7 +2535,7 @@ const DocumentRow = memo(function DocumentRow({
       </View>
       <View style={styles.documentRight}>
         <Text style={styles.documentDate}>{formatDate(document.date)}</Text>
-        <StatusPill status={document.status} />
+        <StatusPill status={document.status} onPress={onStatusPress ?? onPress} />
       </View>
     </Pressable>
   );
@@ -2065,19 +2544,13 @@ const DocumentRow = memo(function DocumentRow({
   previousProps.document.id === nextProps.document.id &&
   previousProps.document.status === nextProps.document.status &&
   previousProps.document.updatedAt === nextProps.document.updatedAt &&
-  previousProps.document.fileUri === nextProps.document.fileUri,
+  previousProps.document.fileUri === nextProps.document.fileUri &&
+  previousProps.selectionMode === nextProps.selectionMode &&
+  previousProps.selected === nextProps.selected,
 );
 
-function StatusPill({ status }: { status: ExpenseDocument['status'] }) {
-  const label =
-    status === 'awaiting_review'
-      ? 'To review'
-      : status === 'ready_to_submit'
-        ? 'Reviewed'
-        : status === 'submitted'
-          ? 'Submitted'
-          : 'Paid';
-
+function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; onPress: () => void }) {
+  const label = getStatusLabel(status);
   const tone =
     status === 'awaiting_review'
       ? styles.pillReview
@@ -2088,9 +2561,9 @@ function StatusPill({ status }: { status: ExpenseDocument['status'] }) {
           : styles.pillPaid;
 
   return (
-    <View style={[styles.statusPill, tone]}>
+    <Pressable style={[styles.statusPill, tone]} onPress={onPress}>
       <Text style={styles.statusPillText}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -2174,6 +2647,8 @@ function MoreSheet({
   isAdmin,
   onClose,
   onOpenSettings,
+  onOpenVault,
+  onOpenTeamAdmin,
   onOpenCamera,
   onUseGallery,
   onCreateMileageClaim,
@@ -2183,6 +2658,8 @@ function MoreSheet({
   isAdmin: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenVault: () => void;
+  onOpenTeamAdmin: () => void;
   onOpenCamera: () => void;
   onUseGallery: () => void;
   onCreateMileageClaim: () => void;
@@ -2194,11 +2671,11 @@ function MoreSheet({
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
+        <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
         {target === 'menu' ? (
           <View style={styles.sheetCard}>
-            <Pressable style={styles.sheetRow} onPress={onClose}>
+            <Pressable style={styles.sheetRow} onPress={onOpenVault}>
               <Ionicons name="wallet-outline" size={28} color={colors.nearBlack} />
               <Text style={styles.sheetText}>Vault</Text>
             </Pressable>
@@ -2207,7 +2684,7 @@ function MoreSheet({
               <Text style={styles.sheetText}>Settings</Text>
             </Pressable>
             {isAdmin ? (
-              <Pressable style={styles.sheetRow} onPress={onClose}>
+              <Pressable style={styles.sheetRow} onPress={onOpenTeamAdmin}>
                 <Ionicons name="people-outline" size={28} color={colors.nearBlack} />
                 <Text style={styles.sheetText}>Team admin</Text>
               </Pressable>
@@ -2233,6 +2710,428 @@ function MoreSheet({
             </Pressable>
           </View>
         )}
+      </View>
+    </Modal>
+  );
+}
+
+function HeaderMenuSheet({
+  visible,
+  bulkSelectionEnabled,
+  selectedCount,
+  onClose,
+  onSelectMultiple,
+  onRefresh,
+  onBulkMarkReviewed,
+  onBulkDelete,
+  onClearSelection,
+}: {
+  visible: boolean;
+  bulkSelectionEnabled: boolean;
+  selectedCount: number;
+  onClose: () => void;
+  onSelectMultiple: () => void;
+  onRefresh: () => void;
+  onBulkMarkReviewed: () => void;
+  onBulkDelete: () => void;
+  onClearSelection: () => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <Pressable style={styles.headerMenuBackdrop} onPress={onClose}>
+        <View style={styles.headerMenuCard}>
+          {!bulkSelectionEnabled ? (
+            <>
+              <Pressable style={styles.headerMenuRow} onPress={onSelectMultiple}>
+                <Text style={styles.headerMenuText}>Select multiple items</Text>
+              </Pressable>
+              <Pressable style={styles.headerMenuRow} onPress={onRefresh}>
+                <Text style={styles.headerMenuText}>Refresh feed</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.headerMenuCaption}>{selectedCount} selected</Text>
+              <Pressable style={styles.headerMenuRow} onPress={onBulkMarkReviewed}>
+                <Text style={styles.headerMenuText}>Mark selected reviewed</Text>
+              </Pressable>
+              <Pressable style={styles.headerMenuRow} onPress={onBulkDelete}>
+                <Text style={styles.headerMenuText}>Delete selected</Text>
+              </Pressable>
+              <Pressable style={styles.headerMenuRow} onPress={onClearSelection}>
+                <Text style={styles.headerMenuText}>Clear selection</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function NotificationsSheet({
+  visible,
+  notifications,
+  onClose,
+  onOpenDocument,
+}: {
+  visible: boolean;
+  notifications: Array<{ id: string; title: string; message: string; createdAt: string }>;
+  onClose: () => void;
+  onOpenDocument: (documentId: string) => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          <Text style={styles.panelTitle}>Processing alerts</Text>
+          <ScrollView contentContainerStyle={styles.panelContent}>
+            {!notifications.length ? (
+              <Text style={styles.panelMuted}>No document alerts right now.</Text>
+            ) : (
+              notifications.map((notification) => (
+                <Pressable
+                  key={notification.id}
+                  style={styles.panelListRow}
+                  onPress={() => onOpenDocument(notification.id)}
+                >
+                  <View style={styles.panelListRowMain}>
+                    <Text style={styles.panelListTitle}>{notification.title}</Text>
+                    <Text style={styles.panelListMeta}>{notification.message}</Text>
+                  </View>
+                  <Text style={styles.panelListTime}>{formatDate(notification.createdAt)}</Text>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function FilterSheet({
+  visible,
+  statusFilter,
+  sortMode,
+  onClose,
+  onSelectStatus,
+  onSelectSort,
+}: {
+  visible: boolean;
+  statusFilter: StatusFilter;
+  sortMode: SortMode;
+  onClose: () => void;
+  onSelectStatus: (value: StatusFilter) => void;
+  onSelectSort: (value: SortMode) => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          <Text style={styles.panelTitle}>Sort and filter</Text>
+          <Text style={styles.panelSectionTitle}>Status</Text>
+          {statusFilterOptions.map((option) => (
+            <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectStatus(option.value)}>
+              <Text style={styles.panelOptionText}>{option.label}</Text>
+              {statusFilter === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
+            </Pressable>
+          ))}
+          <Text style={styles.panelSectionTitle}>Sort</Text>
+          {sortOptions.map((option) => (
+            <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectSort(option.value)}>
+              <Text style={styles.panelOptionText}>{option.label}</Text>
+              {sortMode === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ClaimComposerSheet({
+  visible,
+  title,
+  startDate,
+  endDate,
+  onClose,
+  onChangeTitle,
+  onChangeStartDate,
+  onChangeEndDate,
+  onSubmit,
+}: {
+  visible: boolean;
+  title: string;
+  startDate: string;
+  endDate: string;
+  onClose: () => void;
+  onChangeTitle: (value: string) => void;
+  onChangeStartDate: (value: string) => void;
+  onChangeEndDate: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          <Text style={styles.panelTitle}>Create claim</Text>
+          <TextInput value={title} onChangeText={onChangeTitle} placeholder="Claim title" style={styles.panelInput} />
+          <TextInput value={startDate} onChangeText={onChangeStartDate} placeholder="Start date" style={styles.panelInput} />
+          <TextInput value={endDate} onChangeText={onChangeEndDate} placeholder="End date" style={styles.panelInput} />
+          <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
+            <Text style={styles.panelPrimaryButtonText}>Create claim</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MileageClaimSheet({
+  visible,
+  startPostcode,
+  endPostcode,
+  totalMiles,
+  onClose,
+  onChangeStartPostcode,
+  onChangeEndPostcode,
+  onChangeTotalMiles,
+  onSubmit,
+}: {
+  visible: boolean;
+  startPostcode: string;
+  endPostcode: string;
+  totalMiles: string;
+  onClose: () => void;
+  onChangeStartPostcode: (value: string) => void;
+  onChangeEndPostcode: (value: string) => void;
+  onChangeTotalMiles: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          <Text style={styles.panelTitle}>Create mileage claim</Text>
+          <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} />
+          <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} />
+          <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} />
+          <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
+            <Text style={styles.panelPrimaryButtonText}>Create mileage claim</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ThemeSheet({
+  visible,
+  value,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  value: ThemeOption;
+  onClose: () => void;
+  onSelect: (theme: ThemeOption) => void;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          <Text style={styles.panelTitle}>Theme</Text>
+          {themeOptions.map((option) => (
+            <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelect(option.value)}>
+              <Text style={styles.panelOptionText}>{option.label}</Text>
+              {value === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SettingsPanelSheet({
+  visible,
+  target,
+  role,
+  inboundEmailAddress,
+  analyticsSummary,
+  vehicles,
+  vehicleNameInput,
+  vehicleRegistrationInput,
+  editingVehicleId,
+  onClose,
+  onExport,
+  onChangeVehicleName,
+  onChangeVehicleRegistration,
+  onSaveVehicle,
+  onEditVehicle,
+  onDeleteVehicle,
+}: {
+  visible: boolean;
+  target: SettingsPanelTarget | null;
+  role: 'Business_Admin' | 'Standard_Employee';
+  inboundEmailAddress: string;
+  analyticsSummary: { total: number; vatTotal: number; reviewCount: number; submittedCount: number };
+  vehicles: Vehicle[];
+  vehicleNameInput: string;
+  vehicleRegistrationInput: string;
+  editingVehicleId: string | null;
+  onClose: () => void;
+  onExport: () => void;
+  onChangeVehicleName: (value: string) => void;
+  onChangeVehicleRegistration: (value: string) => void;
+  onSaveVehicle: () => void;
+  onEditVehicle: (vehicle: Vehicle) => void;
+  onDeleteVehicle: (vehicleId: string) => void;
+}) {
+  if (!visible || !target) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.sheetBackdrop}>
+        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.documentSheetHandle} />
+          {target === 'business_admin' ? (
+            <>
+              <Text style={styles.panelTitle}>Business admin</Text>
+              <Text style={styles.panelMuted}>
+                {role === 'Business_Admin'
+                  ? 'Admin access is active on this workspace.'
+                  : 'This workspace is signed in without business admin permissions.'}
+              </Text>
+            </>
+          ) : null}
+          {target === 'logins' ? (
+            <>
+              <Text style={styles.panelTitle}>Logins</Text>
+              <Text style={styles.panelMuted}>This device is signed in and using the current secure session.</Text>
+            </>
+          ) : null}
+          {target === 'extract_email' ? (
+            <>
+              <Text style={styles.panelTitle}>Extract by email</Text>
+              <Text style={styles.panelMuted}>{inboundEmailAddress}</Text>
+            </>
+          ) : null}
+          {target === 'analytics' ? (
+            <>
+              <Text style={styles.panelTitle}>Analytics</Text>
+              <View style={styles.analyticsGrid}>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.total)}</Text>
+                  <Text style={styles.analyticsLabel}>Visible total</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.vatTotal)}</Text>
+                  <Text style={styles.analyticsLabel}>Visible VAT</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{analyticsSummary.reviewCount}</Text>
+                  <Text style={styles.analyticsLabel}>To review</Text>
+                </View>
+                <View style={styles.analyticsCard}>
+                  <Text style={styles.analyticsValue}>{analyticsSummary.submittedCount}</Text>
+                  <Text style={styles.analyticsLabel}>Submitted</Text>
+                </View>
+              </View>
+            </>
+          ) : null}
+          {target === 'team_exports' ? (
+            <>
+              <Text style={styles.panelTitle}>Team exports</Text>
+              <Text style={styles.panelMuted}>Share a CSV-style export of the current workspace data.</Text>
+              <Pressable style={styles.panelPrimaryButton} onPress={onExport}>
+                <Text style={styles.panelPrimaryButtonText}>Export summary</Text>
+              </Pressable>
+            </>
+          ) : null}
+          {target === 'vault' ? (
+            <>
+              <Text style={styles.panelTitle}>Vault</Text>
+              <Text style={styles.panelMuted}>Vault items are stored without OCR when you choose Add to Vault.</Text>
+            </>
+          ) : null}
+          {target === 'team_admin' ? (
+            <>
+              <Text style={styles.panelTitle}>Team admin</Text>
+              <Text style={styles.panelMuted}>Open your team management tools from this workspace area.</Text>
+            </>
+          ) : null}
+          {target === 'vehicles' ? (
+            <>
+              <Text style={styles.panelTitle}>Vehicles</Text>
+              <TextInput value={vehicleNameInput} onChangeText={onChangeVehicleName} placeholder="Vehicle name" style={styles.panelInput} />
+              <TextInput value={vehicleRegistrationInput} onChangeText={onChangeVehicleRegistration} placeholder="Registration" autoCapitalize="characters" style={styles.panelInput} />
+              <Pressable style={styles.panelPrimaryButton} onPress={onSaveVehicle}>
+                <Text style={styles.panelPrimaryButtonText}>{editingVehicleId ? 'Save vehicle' : 'Add vehicle'}</Text>
+              </Pressable>
+              <ScrollView contentContainerStyle={styles.panelContent}>
+                {!vehicles.length ? (
+                  <Text style={styles.panelMuted}>No vehicles added yet.</Text>
+                ) : (
+                  vehicles.map((vehicle) => (
+                    <View key={vehicle.id} style={styles.panelListRow}>
+                      <View style={styles.panelListRowMain}>
+                        <Text style={styles.panelListTitle}>{vehicle.name}</Text>
+                        <Text style={styles.panelListMeta}>{vehicle.registration}</Text>
+                      </View>
+                      <View style={styles.panelInlineActions}>
+                        <Pressable onPress={() => onEditVehicle(vehicle)}>
+                          <Text style={styles.panelInlineActionText}>Edit</Text>
+                        </Pressable>
+                        <Pressable onPress={() => onDeleteVehicle(vehicle.id)}>
+                          <Text style={styles.panelInlineActionText}>Delete</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </>
+          ) : null}
+        </View>
       </View>
     </Modal>
   );
@@ -3736,5 +4635,208 @@ const styles = StyleSheet.create({
   cameraTypeText: {
     fontSize: 18,
     color: colors.white,
+  },
+  shellDark: {
+    backgroundColor: '#111827',
+  },
+  shellTextDark: {
+    color: colors.white,
+  },
+  headerIconButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerNotificationDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  headerNotificationDotText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  selectionDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.lightBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  selectionDotActive: {
+    backgroundColor: colors.royalBlueDark,
+    borderColor: colors.royalBlueDark,
+  },
+  documentRowSelected: {
+    borderColor: colors.royalBlueDark,
+    borderWidth: 1,
+  },
+  headerMenuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(17,24,39,0.2)',
+    alignItems: 'flex-end',
+    paddingTop: 86,
+    paddingRight: 18,
+  },
+  headerMenuCard: {
+    width: 220,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    paddingVertical: 8,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  headerMenuRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  headerMenuText: {
+    fontSize: 15,
+    color: colors.nearBlack,
+    fontWeight: '600',
+  },
+  headerMenuCaption: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    fontSize: 12,
+    color: colors.mutedText,
+    fontWeight: '700',
+  },
+  panelSheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 34,
+    maxHeight: '78%',
+  },
+  panelTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.nearBlack,
+    marginBottom: 16,
+  },
+  panelSectionTitle: {
+    marginTop: 10,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.mutedText,
+    textTransform: 'uppercase',
+  },
+  panelOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.band,
+  },
+  panelOptionText: {
+    fontSize: 16,
+    color: colors.nearBlack,
+  },
+  panelContent: {
+    gap: 12,
+  },
+  panelMuted: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.mutedText,
+  },
+  panelListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.band,
+  },
+  panelListRowMain: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  panelListTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  panelListMeta: {
+    marginTop: 4,
+    fontSize: 14,
+    color: colors.mutedText,
+  },
+  panelListTime: {
+    fontSize: 13,
+    color: colors.mutedText,
+  },
+  panelInput: {
+    borderWidth: 1,
+    borderColor: colors.lightBorder,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 16,
+    color: colors.nearBlack,
+    marginBottom: 12,
+  },
+  panelPrimaryButton: {
+    marginTop: 6,
+    borderRadius: 14,
+    backgroundColor: colors.royalBlueDark,
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  panelPrimaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  analyticsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  analyticsCard: {
+    width: '47%',
+    backgroundColor: colors.band,
+    borderRadius: 16,
+    padding: 16,
+  },
+  analyticsValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  analyticsLabel: {
+    marginTop: 6,
+    fontSize: 13,
+    color: colors.mutedText,
+  },
+  panelInlineActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  panelInlineActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.royalBlueDark,
   },
 });

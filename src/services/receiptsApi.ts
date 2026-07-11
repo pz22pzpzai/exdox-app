@@ -172,6 +172,42 @@ export async function deleteCloudReceipt(receiptId: number) {
   }
 }
 
+export async function updateCloudReceipt(
+  receiptId: number,
+  updates: Partial<
+    Pick<
+      ExpenseDocument,
+      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
+    >
+  >,
+) {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/receipts/${receiptId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      vendorName: updates.supplier,
+      invoiceDate: updates.date,
+      dueDate: updates.dueDate,
+      invoiceNumber: updates.invoiceNumber,
+      category: updates.category,
+      netAmount: updates.netAmount,
+      vatAmount: updates.vatAmount,
+      totalAmount: updates.amount,
+      taxRateApplied: updates.taxRateApplied,
+      status: updates.status,
+    }),
+  });
+
+  const data = (await response.json()) as { success?: boolean; message?: string };
+  if (!response.ok || data.success === false) {
+    throw new Error(typeof data.message === 'string' ? data.message : 'Could not update this receipt.');
+  }
+}
+
 export async function fetchCloudReceiptAssetUrl(receiptId: number) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/receipts/${receiptId}/asset-url`, {

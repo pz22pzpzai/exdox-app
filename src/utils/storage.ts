@@ -119,6 +119,7 @@ const normalizeState = (saved: Partial<AppState>): AppState => ({
     updatedAt: document.updatedAt ?? document.createdAt ?? new Date().toISOString(),
   })),
   claims: saved.claims ?? [],
+  vehicles: saved.vehicles ?? [],
   settings: {
     ...seedState.settings,
     ...(saved.settings ?? {}),

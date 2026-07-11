@@ -76,18 +76,25 @@ export interface Claim {
   submittedOn?: string;
 }
 
+export interface Vehicle {
+  id: string;
+  name: string;
+  registration: string;
+}
+
 export interface UserSettings {
   openOnCamera: boolean;
   lowResolution: boolean;
   saveToGallery: boolean;
   inAppSounds: boolean;
   marketingNotifications: boolean;
-  theme: 'system';
+  theme: 'system' | 'light' | 'dark';
 }
 
 export interface AppState {
   documents: ExpenseDocument[];
   claims: Claim[];
+  vehicles: Vehicle[];
   settings: UserSettings;
 }
 
