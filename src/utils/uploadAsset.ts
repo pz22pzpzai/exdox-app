@@ -6,6 +6,7 @@ const IMAGE_WIDTH_LIMIT = 1800;
 const IMPORT_MAX_DIMENSION = 1600;
 const IMPORT_COMPRESS_QUALITY = 0.88;
 const documentDirectory = FileSystem.documentDirectory ?? undefined;
+const uploadDirectory = documentDirectory ? `${documentDirectory}uploads/` : undefined;
 
 export const prepareDocumentUpload = async ({
   uri,
@@ -18,18 +19,22 @@ export const prepareDocumentUpload = async ({
   lowResolution: boolean;
   source?: 'camera' | 'gallery' | 'files' | 'seeded';
 }) => {
+  const normalizedUploadName = isImageFile(fileName, uri) ? normalizeJpegName(fileName) : fileName;
+
   if (!isImageFile(fileName, uri)) {
+    const stableUri = await persistPreparedUpload(uri, normalizedUploadName);
     return {
-      uri,
-      fileName,
+      uri: stableUri,
+      fileName: normalizedUploadName,
       mimeType: inferMimeType(fileName),
     };
   }
 
   if (source === 'camera') {
+    const stableUri = await persistPreparedUpload(uri, normalizedUploadName);
     return {
-      uri,
-      fileName: normalizeJpegName(fileName),
+      uri: stableUri,
+      fileName: normalizedUploadName,
       mimeType: 'image/jpeg',
     };
   }
@@ -44,14 +49,15 @@ export const prepareDocumentUpload = async ({
     });
 
     return {
-      uri: result.uri,
-      fileName: normalizeJpegName(fileName),
+      uri: await persistPreparedUpload(result.uri, normalizedUploadName),
+      fileName: normalizedUploadName,
       mimeType: 'image/jpeg',
     };
   } catch {
+    const stableUri = await persistPreparedUpload(uri, normalizedUploadName);
     return {
-      uri,
-      fileName: inferMimeType(fileName) === 'image/jpeg' ? normalizeJpegName(fileName) : fileName,
+      uri: stableUri,
+      fileName: inferMimeType(fileName) === 'image/jpeg' ? normalizedUploadName : fileName,
       mimeType: inferMimeType(fileName),
     };
   }
@@ -147,6 +153,26 @@ async function persistImportedImage(id: string, uri: string, fileName: string) {
 
   try {
     await FileSystem.makeDirectoryAsync(importDirectory, { intermediates: true });
+    await FileSystem.copyAsync({
+      from: uri,
+      to: nextUri,
+    });
+    return nextUri;
+  } catch {
+    return uri;
+  }
+}
+
+async function persistPreparedUpload(uri: string, fileName: string) {
+  if (!uploadDirectory) {
+    return uri;
+  }
+
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_') || `upload-${Date.now()}.jpg`;
+  const nextUri = `${uploadDirectory}${safeFileName}`;
+
+  try {
+    await FileSystem.makeDirectoryAsync(uploadDirectory, { intermediates: true });
     await FileSystem.copyAsync({
       from: uri,
       to: nextUri,

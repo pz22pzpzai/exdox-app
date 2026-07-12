@@ -285,6 +285,28 @@ const normalizeDocumentFileName = (fileName: string) =>
     .replace(/\.[^/.]+$/, '')
     .replace(/[^a-z0-9]+/g, '');
 
+const getDocumentFileNameCandidates = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) => {
+  const candidates = new Set<string>();
+  const normalizedFileName = normalizeDocumentFileName(document.fileName);
+  if (normalizedFileName) {
+    candidates.add(normalizedFileName);
+  }
+
+  if (document.fileUri) {
+    const fileUriName = document.fileUri.split(/[\\/]/).pop() ?? '';
+    const normalizedUriName = normalizeDocumentFileName(fileUriName);
+    if (normalizedUriName) {
+      candidates.add(normalizedUriName);
+      const trimmedPrefixedName = normalizedUriName.replace(/^doc\d+/, '');
+      if (trimmedPrefixedName) {
+        candidates.add(trimmedPrefixedName);
+      }
+    }
+  }
+
+  return [...candidates];
+};
+
 const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDocument: ExpenseDocument) => {
   if (localDocument.cloudReceiptId) {
     return false;
@@ -294,9 +316,14 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
     return false;
   }
 
-  const localFileName = normalizeDocumentFileName(localDocument.fileName);
+  const localFileNameCandidates = getDocumentFileNameCandidates(localDocument);
   const cloudFileName = normalizeDocumentFileName(cloudDocument.fileName);
-  if (!localFileName || localFileName !== cloudFileName) {
+  if (
+    !cloudFileName ||
+    !localFileNameCandidates.some(
+      (candidate) => candidate === cloudFileName || candidate.endsWith(cloudFileName) || cloudFileName.endsWith(candidate),
+    )
+  ) {
     return false;
   }
 
