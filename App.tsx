@@ -238,10 +238,16 @@ const isTransientNetworkError = (error: unknown) => {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const mergeWorkspaceDocuments = (currentDocuments: ExpenseDocument[], cloudDocuments: ExpenseDocument[]) => {
+const mergeWorkspaceDocuments = (
+  currentDocuments: ExpenseDocument[],
+  cloudDocuments: ExpenseDocument[],
+  deletedCloudReceiptIds: Set<number>,
+) => {
   const cloudReceiptIds = new Set(cloudDocuments.map((document) => document.cloudReceiptId).filter(Boolean));
   const retainedLocalDocuments = currentDocuments.filter(
-    (document) => !document.cloudReceiptId || !cloudReceiptIds.has(document.cloudReceiptId),
+    (document) =>
+      (!document.cloudReceiptId || !cloudReceiptIds.has(document.cloudReceiptId)) &&
+      (!document.cloudReceiptId || !deletedCloudReceiptIds.has(document.cloudReceiptId)),
   );
   const localCloudDocuments = new Map(
     currentDocuments
@@ -379,6 +385,7 @@ export default function App() {
   const hasRestoredStateRef = useRef(false);
   const awaitingGalleryResultRef = useRef(false);
   const handledGalleryAssetRef = useRef<string | null>(null);
+  const deletedCloudReceiptIdsRef = useRef<Set<number>>(new Set());
   const [appState, setAppState] = useState<AppState>(seedState);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
@@ -549,7 +556,7 @@ export default function App() {
 
       setAppState((current) => ({
         ...current,
-        documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments),
+        documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments, deletedCloudReceiptIdsRef.current),
         claims: remoteClaims,
       }));
     } catch (error) {
@@ -1356,6 +1363,7 @@ export default function App() {
     try {
       if (document.cloudReceiptId) {
         await deleteCloudReceipt(document.cloudReceiptId);
+        deletedCloudReceiptIdsRef.current.add(document.cloudReceiptId);
       }
 
       updateState((current) => ({
@@ -1363,6 +1371,9 @@ export default function App() {
         documents: current.documents.filter((item) => item.id !== document.id),
       }));
       setSelectedDocumentId((current) => (current === document.id ? null : current));
+      if (authSession) {
+        await syncCloudWorkspace(authSession);
+      }
     } catch (error) {
       void recordError('deleteDocument', error);
       Alert.alert('Delete failed', error instanceof Error ? error.message : 'Could not delete this document.');
