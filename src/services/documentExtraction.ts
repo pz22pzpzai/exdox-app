@@ -8,6 +8,41 @@ const API_URL =
   process.env.EXPO_PUBLIC_EXPENSES_API_URL?.trim() ||
   'https://hz2zkm6jkf.execute-api.eu-west-2.amazonaws.com/prod/api/v1/expenses/process';
 
+const resolveDocumentAmount = ({
+  amount,
+  netAmount,
+  vatAmount,
+  taxAmount,
+}: {
+  amount?: number | null;
+  netAmount?: number | null;
+  vatAmount?: number | null;
+  taxAmount?: number | null;
+}) => {
+  if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+    return amount;
+  }
+
+  const derivedTaxAmount =
+    typeof vatAmount === 'number' && Number.isFinite(vatAmount)
+      ? vatAmount
+      : typeof taxAmount === 'number' && Number.isFinite(taxAmount)
+        ? taxAmount
+        : null;
+
+  if (
+    typeof netAmount === 'number' &&
+    Number.isFinite(netAmount) &&
+    netAmount >= 0 &&
+    derivedTaxAmount !== null &&
+    derivedTaxAmount >= 0
+  ) {
+    return Number((netAmount + derivedTaxAmount).toFixed(2));
+  }
+
+  return amount ?? 0;
+};
+
 export interface ExtractedDocumentDraft {
   supplier: string;
   amount: number;
@@ -111,7 +146,12 @@ class LocalMockExtractionService implements DocumentExtractionService {
 
       return {
         supplier: payload.document.vendorName ?? formatNameFallback(fileName, type),
-        amount: payload.document.totalAmount ?? 0,
+        amount: resolveDocumentAmount({
+          amount: payload.document.totalAmount,
+          netAmount: payload.document.netAmount ?? payload.document.subtotalAmount,
+          vatAmount: payload.document.vatAmount,
+          taxAmount: payload.document.totalTaxAmount,
+        }),
         netAmount: payload.document.netAmount ?? payload.document.subtotalAmount ?? payload.document.totalAmount ?? 0,
         vatAmount: payload.document.vatAmount ?? payload.document.totalTaxAmount ?? 0,
         taxRateApplied: payload.document.taxRateApplied ?? 'No VAT',

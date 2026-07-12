@@ -189,7 +189,12 @@ const applyExtractedDocumentDraft = (
   ...document,
   title: extracted.supplier || document.title,
   supplier: extracted.supplier,
-  amount: extracted.amount ?? document.amount,
+  amount: resolveDocumentAmount({
+    amount: extracted.amount,
+    netAmount: extracted.netAmount,
+    vatAmount: extracted.vatAmount,
+    taxAmount: extracted.taxAmount,
+  }),
   netAmount: extracted.netAmount ?? document.netAmount ?? extracted.amount ?? document.amount,
   vatAmount: extracted.vatAmount ?? extracted.taxAmount ?? document.vatAmount ?? document.taxAmount,
   taxRateApplied: extracted.taxRateApplied ?? document.taxRateApplied ?? 'No VAT',
@@ -238,16 +243,92 @@ const isTransientNetworkError = (error: unknown) => {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const resolveDocumentAmount = ({
+  amount,
+  netAmount,
+  vatAmount,
+  taxAmount,
+}: {
+  amount?: number | null;
+  netAmount?: number | null;
+  vatAmount?: number | null;
+  taxAmount?: number | null;
+}) => {
+  if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+    return amount;
+  }
+
+  const derivedTaxAmount =
+    typeof vatAmount === 'number' && Number.isFinite(vatAmount)
+      ? vatAmount
+      : typeof taxAmount === 'number' && Number.isFinite(taxAmount)
+        ? taxAmount
+        : null;
+
+  if (
+    typeof netAmount === 'number' &&
+    Number.isFinite(netAmount) &&
+    netAmount >= 0 &&
+    derivedTaxAmount !== null &&
+    derivedTaxAmount >= 0
+  ) {
+    return Number((netAmount + derivedTaxAmount).toFixed(2));
+  }
+
+  return amount ?? 0;
+};
+
+const normalizeDocumentFileName = (fileName: string) =>
+  fileName
+    .trim()
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-z0-9]+/g, '');
+
+const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDocument: ExpenseDocument) => {
+  if (localDocument.cloudReceiptId) {
+    return false;
+  }
+
+  if (localDocument.type !== cloudDocument.type || localDocument.workspaceContext !== cloudDocument.workspaceContext) {
+    return false;
+  }
+
+  const localFileName = normalizeDocumentFileName(localDocument.fileName);
+  const cloudFileName = normalizeDocumentFileName(cloudDocument.fileName);
+  if (!localFileName || localFileName !== cloudFileName) {
+    return false;
+  }
+
+  const localCreatedAt = Date.parse(localDocument.createdAt);
+  const cloudCreatedAt = Date.parse(cloudDocument.createdAt);
+  if (!Number.isFinite(localCreatedAt) || !Number.isFinite(cloudCreatedAt)) {
+    return false;
+  }
+
+  return Math.abs(localCreatedAt - cloudCreatedAt) <= 1000 * 60 * 15;
+};
+
 const mergeWorkspaceDocuments = (
   currentDocuments: ExpenseDocument[],
   cloudDocuments: ExpenseDocument[],
   deletedCloudReceiptIds: Set<number>,
 ) => {
   const cloudReceiptIds = new Set(cloudDocuments.map((document) => document.cloudReceiptId).filter(Boolean));
+  const duplicateLocalDocumentIds = new Set(
+    currentDocuments
+      .filter((document) => !document.cloudReceiptId)
+      .flatMap((document) =>
+        cloudDocuments.some((cloudDocument) => isLikelyTimedOutUploadDuplicate(document, cloudDocument))
+          ? [document.id]
+          : [],
+      ),
+  );
   const retainedLocalDocuments = currentDocuments.filter(
     (document) =>
       (!document.cloudReceiptId || !cloudReceiptIds.has(document.cloudReceiptId)) &&
-      (!document.cloudReceiptId || !deletedCloudReceiptIds.has(document.cloudReceiptId)),
+      (!document.cloudReceiptId || !deletedCloudReceiptIds.has(document.cloudReceiptId)) &&
+      !duplicateLocalDocumentIds.has(document.id),
   );
   const localCloudDocuments = new Map(
     currentDocuments
@@ -256,16 +337,18 @@ const mergeWorkspaceDocuments = (
   );
   const mergedCloudDocuments = cloudDocuments.map((document) => {
     const localDocument = document.cloudReceiptId ? localCloudDocuments.get(document.cloudReceiptId) : undefined;
-    if (!localDocument) {
+    const duplicateLocalDocument = currentDocuments.find((current) => isLikelyTimedOutUploadDuplicate(current, document));
+    const mergedLocalDocument = localDocument ?? duplicateLocalDocument;
+    if (!mergedLocalDocument) {
       return document;
     }
 
     return {
       ...document,
-      id: localDocument.id,
-      fileUri: localDocument.fileUri ?? document.fileUri,
-      source: localDocument.source,
-      createdAt: localDocument.createdAt,
+      id: mergedLocalDocument.id,
+      fileUri: mergedLocalDocument.fileUri ?? document.fileUri,
+      source: mergedLocalDocument.source,
+      createdAt: mergedLocalDocument.createdAt,
     };
   });
 
@@ -785,6 +868,10 @@ export default function App() {
           document.id === documentId ? applyExtractedDocumentDraft(document, extracted) : document,
         ),
       }));
+      if (authSession && !extracted.cloudReceiptId) {
+        await delay(1200);
+        await syncCloudWorkspace(authSession);
+      }
     } catch (error) {
       await recordDiagnostic(source, `Background upload failed for ${fileName}`);
       void recordError('background upload', error);

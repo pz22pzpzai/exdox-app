@@ -2,6 +2,41 @@ import { type Claim, type ExpenseDocument, type PaymentMethod, type WorkspaceCon
 import { getApiBaseUrl } from './auth';
 import { requireSessionToken } from './session';
 
+const resolveDocumentAmount = ({
+  amount,
+  netAmount,
+  vatAmount,
+  taxAmount,
+}: {
+  amount?: number | null;
+  netAmount?: number | null;
+  vatAmount?: number | null;
+  taxAmount?: number | null;
+}) => {
+  if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+    return amount;
+  }
+
+  const derivedTaxAmount =
+    typeof vatAmount === 'number' && Number.isFinite(vatAmount)
+      ? vatAmount
+      : typeof taxAmount === 'number' && Number.isFinite(taxAmount)
+        ? taxAmount
+        : null;
+
+  if (
+    typeof netAmount === 'number' &&
+    Number.isFinite(netAmount) &&
+    netAmount >= 0 &&
+    derivedTaxAmount !== null &&
+    derivedTaxAmount >= 0
+  ) {
+    return Number((netAmount + derivedTaxAmount).toFixed(2));
+  }
+
+  return amount ?? 0;
+};
+
 type ReceiptApiResponse = {
   success: true;
   receipts: Array<{
@@ -246,7 +281,12 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     paymentMethod: receipt.paymentMethod,
     title: receipt.vendorName || receipt.sourceFilename.replace(/\.[^/.]+$/, ''),
     supplier: receipt.vendorName || 'Merchant to review',
-    amount: receipt.totalAmount ?? 0,
+    amount: resolveDocumentAmount({
+      amount: receipt.totalAmount,
+      netAmount: receipt.netAmount,
+      vatAmount: receipt.vatAmount,
+      taxAmount: receipt.totalTaxAmount,
+    }),
     netAmount: receipt.netAmount ?? receipt.totalAmount ?? 0,
     vatAmount: receipt.vatAmount ?? receipt.totalTaxAmount ?? 0,
     taxRateApplied: receipt.taxRateApplied ?? 'No VAT',
