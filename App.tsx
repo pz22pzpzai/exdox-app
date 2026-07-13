@@ -844,7 +844,7 @@ export default function App() {
           documents: [document, ...current.documents],
         }));
         setActiveTab(document.type === 'invoice' ? 'sales' : 'costs');
-        setSelectedDocumentId(origin === 'gallery' || origin === 'recovery' ? document.id : null);
+        setSelectedDocumentId(document.id);
         setTimeout(() => {
           void processPreparedDocumentUpload({
             documentId: document.id,
