@@ -52,6 +52,8 @@ export interface ExtractedDocumentDraft {
   taxAmount: number;
   currency: string;
   category: string;
+  description?: string;
+  customer?: string;
   notes: string;
   dueDate?: string;
   invoiceNumber?: string;

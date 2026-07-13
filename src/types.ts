@@ -30,6 +30,8 @@ export interface ExpenseDocument {
   currency: string;
   status: DocumentStatus;
   category: string;
+  description?: string;
+  customer?: string;
   date: string;
   dueDate?: string;
   invoiceNumber?: string;

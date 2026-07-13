@@ -76,6 +76,8 @@ export const buildDraftDocument = async ({
     currency: extracted.currency,
     status: 'awaiting_review',
     category: extracted.category,
+    description: extracted.description ?? '',
+    customer: extracted.customer ?? '',
     date: now,
     dueDate: extracted.dueDate,
     invoiceNumber: extracted.invoiceNumber,
@@ -125,6 +127,8 @@ const extractDraftSafely = async ({
       taxAmount: 0,
       currency: 'GBP',
       category: type === 'invoice' ? 'Accounts Payable' : 'General',
+      description: '',
+      customer: '',
       notes: 'Captured with camera and saved for manual review.',
       dueDate:
         type === 'invoice'
@@ -160,6 +164,8 @@ const extractDraftSafely = async ({
       taxAmount: 0,
       currency: 'GBP',
       category: type === 'invoice' ? 'Accounts Payable' : 'General',
+      description: '',
+      customer: '',
       notes: 'Imported for manual review because automatic extraction is unavailable.',
       dueDate:
         type === 'invoice'

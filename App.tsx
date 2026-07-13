@@ -88,6 +88,27 @@ const brandMark = require('./assets/exdox-mark.png');
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
+const COST_CATEGORY_OPTIONS = [
+  'Staff Welfare',
+  '1 - Taxi',
+  '2 - Bus/ Tram',
+  '3 - Car Wash',
+  '4 - Fuel',
+  '5 - Train',
+  '6 - Toll Road',
+  '7 - Motor Expenses',
+  '8 - Other',
+  '9 - Uniform',
+  '10 - EV Charging',
+] as const;
+const SALES_CATEGORY_OPTIONS = [
+  'Accounts Receivable',
+  'Consulting Income',
+  'Product Sales',
+  'Subscription Income',
+  'Travel Recharge',
+  'Other Income',
+] as const;
 const previewableImagePattern = /\.(jpg|jpeg|png|webp|heic)$/i;
 const pdfDocumentPattern = /\.pdf(\?|$)/i;
 
@@ -101,6 +122,8 @@ const NativeGalleryPicker = NativeModules.NativeGalleryPicker as
   | undefined;
 
 const getWorkspaceContextForTab = (tab: MainTab): WorkspaceContext => (tab === 'sales' ? 'sales' : 'cost');
+const getCategoryOptions = (workspaceContext: WorkspaceContext) =>
+  workspaceContext === 'sales' ? [...SALES_CATEGORY_OPTIONS] : [...COST_CATEGORY_OPTIONS];
 const getDefaultPaymentMethod = (workspaceContext: WorkspaceContext, isAdmin: boolean): PaymentMethod => {
   if (workspaceContext === 'vault') {
     return 'not_applicable';
@@ -157,6 +180,8 @@ const buildManualDraftDocument = ({
     currency: 'GBP',
     status: 'awaiting_review',
     category: isInvoice ? 'Accounts Payable' : 'General',
+    description: '',
+    customer: '',
     date: now,
     netAmount: 0,
     vatAmount: 0,
@@ -201,6 +226,8 @@ const applyExtractedDocumentDraft = (
   taxAmount: extracted.taxAmount ?? document.taxAmount,
   currency: extracted.currency ?? document.currency,
   category: extracted.category ?? document.category,
+  description: extracted.description ?? document.description ?? '',
+  customer: extracted.customer ?? document.customer ?? '',
   dueDate: extracted.dueDate,
   invoiceNumber: extracted.invoiceNumber,
   notes: extracted.notes || document.notes,
@@ -702,7 +729,7 @@ export default function App() {
       updates: Partial<
         Pick<
           ExpenseDocument,
-          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
+          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
         >
       >,
     ) => {
@@ -717,6 +744,8 @@ export default function App() {
         dueDate: updates.dueDate ?? document.dueDate,
         invoiceNumber: updates.invoiceNumber ?? document.invoiceNumber,
         category: updates.category ?? document.category,
+        description: updates.description ?? document.description,
+        customer: updates.customer ?? document.customer,
         netAmount: updates.netAmount ?? document.netAmount,
         vatAmount: updates.vatAmount ?? document.vatAmount,
         amount: updates.amount ?? document.amount,
@@ -815,7 +844,7 @@ export default function App() {
           documents: [document, ...current.documents],
         }));
         setActiveTab(document.type === 'invoice' ? 'sales' : 'costs');
-        setSelectedDocumentId(null);
+        setSelectedDocumentId(origin === 'gallery' || origin === 'recovery' ? document.id : null);
         setTimeout(() => {
           void processPreparedDocumentUpload({
             documentId: document.id,
@@ -1028,7 +1057,7 @@ export default function App() {
           return statusFilter === 'all' ? true : document.status === statusFilter;
         }
 
-        const matchesSearch = [document.title, document.supplier, document.notes, document.category]
+        const matchesSearch = [document.title, document.supplier, document.notes, document.category, document.description, document.customer]
           .join(' ')
           .toLowerCase()
           .includes(term);
@@ -1540,9 +1569,12 @@ export default function App() {
     }
   });
 
-  const updateDocumentTaxFields = useEffectEvent(async (
+  const updateDocumentReviewFields = useEffectEvent(async (
     documentId: string,
-    taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
+    reviewFields: Pick<
+      ExpenseDocument,
+      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'category' | 'description' | 'customer'
+    >,
     successConfirmation?: {
       title: string;
       message: string;
@@ -1552,16 +1584,16 @@ export default function App() {
     updateState((current) => ({
       ...current,
       documents: current.documents.map((document) =>
-        document.id === documentId ? { ...document, ...taxFields, needsReview: true, updatedAt } : document,
+        document.id === documentId ? { ...document, ...reviewFields, needsReview: true, updatedAt } : document,
       ),
     }));
     try {
-      await syncDocumentToCloud(documentId, taxFields);
+      await syncDocumentToCloud(documentId, reviewFields);
       if (successConfirmation) {
         Alert.alert(successConfirmation.title, successConfirmation.message);
       }
     } catch (error) {
-      void recordError('update tax fields', error);
+      void recordError('update review fields', error);
       Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
     }
   });
@@ -1933,6 +1965,7 @@ export default function App() {
 
         <DocumentSheet
           document={selectedDocument}
+          ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
           onClose={() => setSelectedDocumentId(null)}
           onMarkReviewed={() => {
             if (selectedDocument) {
@@ -1947,11 +1980,11 @@ export default function App() {
               void createClaimFromReceipt(selectedDocument);
             }
           }}
-          onUpdateTaxFields={(taxFields) => {
+          onUpdateReviewFields={(reviewFields) => {
             if (selectedDocument) {
-              void updateDocumentTaxFields(selectedDocument.id, taxFields, {
+              void updateDocumentReviewFields(selectedDocument.id, reviewFields, {
                 title: 'Values saved',
-                message: 'The tax values have been saved.',
+                message: 'The receipt values have been saved.',
               });
             }
           }}
@@ -3340,19 +3373,24 @@ function ErrorLogSheet({
 
 function DocumentSheet({
   document,
+  ownerName,
   onClose,
   onMarkReviewed,
   onAddToClaim,
-  onUpdateTaxFields,
+  onUpdateReviewFields,
   onMarkSubmitted,
   onDelete,
 }: {
   document: ExpenseDocument | null;
+  ownerName: string;
   onClose: () => void;
   onMarkReviewed: () => void;
   onAddToClaim: () => void;
-  onUpdateTaxFields: (
-    taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
+  onUpdateReviewFields: (
+    reviewFields: Pick<
+      ExpenseDocument,
+      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'category' | 'description' | 'customer'
+    >,
   ) => void;
   onMarkSubmitted: () => void;
   onDelete: () => void;
@@ -3361,7 +3399,12 @@ function DocumentSheet({
   const [netInput, setNetInput] = useState('0.00');
   const [vatInput, setVatInput] = useState('0.00');
   const [selectedTaxRate, setSelectedTaxRate] = useState<UkTaxRate>('No VAT');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [descriptionInput, setDescriptionInput] = useState('');
+  const [customerInput, setCustomerInput] = useState('');
   const [taxDropdownOpen, setTaxDropdownOpen] = useState(false);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [categorySearchInput, setCategorySearchInput] = useState('');
   const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
@@ -3372,7 +3415,12 @@ function DocumentSheet({
     setNetInput(formatMoneyInput(document.netAmount ?? document.amount));
     setVatInput(formatMoneyInput(document.vatAmount ?? document.taxAmount));
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
+    setSelectedCategory(document.category ?? '');
+    setDescriptionInput(document.description ?? '');
+    setCustomerInput(document.customer ?? '');
     setTaxDropdownOpen(false);
+    setCategoryPickerVisible(false);
+    setCategorySearchInput('');
     setPreviewVisible(false);
   }, [
     document?.id,
@@ -3382,6 +3430,9 @@ function DocumentSheet({
     document?.vatAmount,
     document?.taxAmount,
     document?.taxRateApplied,
+    document?.category,
+    document?.description,
+    document?.customer,
   ]);
 
   if (!document) {
@@ -3390,6 +3441,10 @@ function DocumentSheet({
 
   const hasPreviewImage =
     canPreviewDocumentInline(document);
+  const categoryOptions = getCategoryOptions(document.workspaceContext);
+  const filteredCategoryOptions = categoryOptions.filter((option) =>
+    option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
+  );
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'
@@ -3428,6 +3483,41 @@ function DocumentSheet({
           <Text style={styles.documentSheetMeta}>{document.supplier}</Text>
           <Text style={styles.documentSheetAmount}>£{document.amount.toFixed(2)}</Text>
           <Text style={styles.documentSheetStatus}>{extractionStatusText}</Text>
+          <View style={styles.reviewEditor}>
+            <Pressable style={styles.reviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
+              <Text style={styles.reviewFieldLabel}>Category</Text>
+              <View style={styles.reviewFieldValueRow}>
+                <Text style={styles.reviewFieldValue}>{selectedCategory || 'Select category'}</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.royalBlueDark} />
+              </View>
+            </Pressable>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Owned by</Text>
+              <Text style={styles.reviewFieldValue}>{ownerName}</Text>
+            </View>
+            <View style={styles.reviewTextField}>
+              <Text style={styles.reviewFieldLabel}>Description</Text>
+              <TextInput
+                value={descriptionInput}
+                onChangeText={setDescriptionInput}
+                placeholder="Write your description here"
+                placeholderTextColor={colors.slate}
+                multiline
+                style={styles.reviewTextInput}
+              />
+            </View>
+            <Text style={styles.reviewSectionHeading}>More</Text>
+            <View style={styles.reviewTextField}>
+              <Text style={styles.reviewFieldLabel}>Customer</Text>
+              <TextInput
+                value={customerInput}
+                onChangeText={setCustomerInput}
+                placeholder="Add customer"
+                placeholderTextColor={colors.slate}
+                style={styles.reviewSingleLineInput}
+              />
+            </View>
+          </View>
           <View style={styles.taxEditor}>
             <View style={styles.taxEditorRow}>
               <TaxAmountField label="Total" value={totalInput} onChangeText={setTotalInput} />
@@ -3474,11 +3564,14 @@ function DocumentSheet({
                 const amount = parseMoneyInput(totalInput);
                 const netAmount = parseMoneyInput(netInput);
                 const vatAmount = parseMoneyInput(vatInput);
-                onUpdateTaxFields({
+                onUpdateReviewFields({
                   amount,
                   netAmount,
                   vatAmount,
                   taxAmount: vatAmount,
+                  category: selectedCategory || document.category,
+                  description: descriptionInput.trim(),
+                  customer: customerInput.trim(),
                   taxRateApplied: selectedTaxRate,
                 });
               }}
@@ -3502,6 +3595,40 @@ function DocumentSheet({
               <Text style={styles.sheetActionDangerText}>Delete</Text>
             </Pressable>
               </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Modal transparent animationType="slide" visible={categoryPickerVisible} onRequestClose={() => setCategoryPickerVisible(false)}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetOverlay} onPress={() => setCategoryPickerVisible(false)} />
+          <View style={styles.categoryPickerSheet}>
+            <View style={styles.documentSheetHandle} />
+            <View style={styles.categoryPickerHeader}>
+              <TextInput
+                value={categorySearchInput}
+                onChangeText={setCategorySearchInput}
+                placeholder="Search"
+                placeholderTextColor={colors.slate}
+                style={styles.categoryPickerSearchInput}
+              />
+              <Pressable onPress={() => setCategoryPickerVisible(false)} style={styles.categoryPickerCloseButton}>
+                <Ionicons name="close" size={28} color={colors.nearBlack} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.categoryPickerList} keyboardShouldPersistTaps="handled">
+              {filteredCategoryOptions.map((option) => (
+                <Pressable
+                  key={option}
+                  style={styles.categoryPickerOption}
+                  onPress={() => {
+                    setSelectedCategory(option);
+                    setCategoryPickerVisible(false);
+                  }}
+                >
+                  <Text style={styles.categoryPickerOptionText}>{option}</Text>
+                </Pressable>
+              ))}
             </ScrollView>
           </View>
         </View>
@@ -4507,6 +4634,74 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.mutedText,
   },
+  reviewEditor: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: colors.lightBorder,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.white,
+  },
+  reviewFieldButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  reviewFieldRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reviewTextField: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  reviewFieldLabel: {
+    fontSize: 14,
+    color: colors.nearBlack,
+    marginBottom: 8,
+  },
+  reviewFieldValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reviewFieldValue: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.nearBlack,
+    fontWeight: '500',
+  },
+  reviewTextInput: {
+    minHeight: 72,
+    fontSize: 16,
+    color: colors.nearBlack,
+    textAlignVertical: 'top',
+    padding: 0,
+  },
+  reviewSingleLineInput: {
+    fontSize: 16,
+    color: colors.nearBlack,
+    padding: 0,
+  },
+  reviewSectionHeading: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.nearBlack,
+    backgroundColor: colors.band,
+  },
   taxEditor: {
     marginTop: 18,
     borderWidth: 1,
@@ -4596,6 +4791,47 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: colors.white,
+  },
+  categoryPickerSheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+    maxHeight: '86%',
+  },
+  categoryPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  categoryPickerSearchInput: {
+    flex: 1,
+    fontSize: 18,
+    color: colors.nearBlack,
+    paddingVertical: 10,
+  },
+  categoryPickerCloseButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryPickerList: {
+    marginTop: 8,
+  },
+  categoryPickerOption: {
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  categoryPickerOptionText: {
+    fontSize: 18,
+    color: colors.nearBlack,
   },
   documentSheetActions: {
     marginTop: 24,

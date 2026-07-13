@@ -59,6 +59,9 @@ type ReceiptApiResponse = {
     totalAmount: number | null;
     netAmount: number | null;
     vatAmount: number | null;
+    category: string | null;
+    description: string | null;
+    customer: string | null;
     taxRateApplied: ExpenseDocument['taxRateApplied'] | null;
     totalTaxAmount: number | null;
     needsReview: boolean;
@@ -213,7 +216,7 @@ export async function updateCloudReceipt(
   updates: Partial<
     Pick<
       ExpenseDocument,
-      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
+      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
     >
   >,
 ) {
@@ -230,6 +233,8 @@ export async function updateCloudReceipt(
       dueDate: updates.dueDate,
       invoiceNumber: updates.invoiceNumber,
       category: updates.category,
+      description: updates.description,
+      customer: updates.customer,
       netAmount: updates.netAmount,
       vatAmount: updates.vatAmount,
       totalAmount: updates.amount,
@@ -293,7 +298,9 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     taxAmount: receipt.totalTaxAmount ?? 0,
     currency: receipt.currency ?? 'GBP',
     status,
-    category: receipt.documentType === 'invoice' ? 'Accounts Payable' : 'General',
+    category: receipt.category ?? (receipt.documentType === 'invoice' ? 'Accounts Payable' : 'General'),
+    description: receipt.description ?? '',
+    customer: receipt.customer ?? '',
     date: receipt.invoiceDate ?? receipt.createdAt,
     dueDate: receipt.dueDate ?? undefined,
     invoiceNumber: receipt.invoiceNumber ?? undefined,
