@@ -19,14 +19,29 @@ export const extractionLooksUnreadable = (input: {
   amount?: number | null;
   notes?: string | null;
   needsReview?: boolean;
+  confidenceScore?: number | null;
+  supplier?: string | null;
+  lineItems?: Array<unknown> | null;
+  taxBreakdown?: Array<unknown> | null;
 }) => {
   const noteText = (input.notes ?? '').toLowerCase();
-  return (
+  if (
     input.needsReview === true &&
     (input.amount ?? 0) === 0 &&
     /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount|blank image|blank file|no receipt visible|no invoice visible|not clearly visible/.test(
       noteText,
     )
+  ) {
+    return true;
+  }
+
+  return (
+    input.needsReview === true &&
+    (input.amount ?? 0) === 0 &&
+    (input.confidenceScore ?? 1) < 0.55 &&
+    !(input.supplier ?? '').trim() &&
+    (input.lineItems?.length ?? 0) === 0 &&
+    (input.taxBreakdown?.length ?? 0) === 0
   );
 };
 
