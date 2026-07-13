@@ -2721,11 +2721,12 @@ const DocumentRow = memo(function DocumentRow({
 }) {
   const hasPreviewImage = canPreviewDocumentInline(document);
   const isProcessing = document.extractionStatus === 'pending';
+  const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading receipt...'
-      : document.extractionStatus === 'failed'
-        ? 'Could not read receipt or invoice'
+      : isUnreadableReceipt
+        ? 'Unable to read receipt, tap to enter manually or retry uploading receipt'
         : document.needsReview
           ? 'Check extracted details'
           : null;
