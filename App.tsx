@@ -536,6 +536,7 @@ export default function App() {
   const [captureModalVisible, setCaptureModalVisible] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [captureReviewDocumentId, setCaptureReviewDocumentId] = useState<string | null>(null);
   const [sheetTarget, setSheetTarget] = useState<MoreSheetTarget | null>(null);
   const [search, setSearch] = useState('');
   const [isReady, setIsReady] = useState(false);
@@ -844,7 +845,8 @@ export default function App() {
           documents: [document, ...current.documents],
         }));
         setActiveTab(document.type === 'invoice' ? 'sales' : 'costs');
-        setSelectedDocumentId(document.id);
+        setSelectedDocumentId(null);
+        setCaptureReviewDocumentId(document.id);
         setTimeout(() => {
           void processPreparedDocumentUpload({
             documentId: document.id,
@@ -917,6 +919,8 @@ export default function App() {
         paymentMethod,
         skipProcessing: workspaceContext === 'vault',
       });
+      const currentDocument = appState.documents.find((document) => document.id === documentId);
+      const nextDocument = currentDocument ? applyExtractedDocumentDraft(currentDocument, extracted) : null;
       await recordDiagnostic(source, `Background upload complete for ${fileName}`);
       updateState((current) => ({
         ...current,
@@ -924,6 +928,18 @@ export default function App() {
           document.id === documentId ? applyExtractedDocumentDraft(document, extracted) : document,
         ),
       }));
+      if (authSession && extracted.cloudReceiptId && nextDocument) {
+        await updateCloudReceipt(extracted.cloudReceiptId, {
+          category: nextDocument.category,
+          description: nextDocument.description,
+          customer: nextDocument.customer,
+          amount: nextDocument.amount,
+          netAmount: nextDocument.netAmount,
+          vatAmount: nextDocument.vatAmount,
+          taxRateApplied: nextDocument.taxRateApplied,
+        });
+        await syncCloudWorkspace(authSession);
+      }
       if (authSession && !extracted.cloudReceiptId) {
         await delay(1200);
         await syncCloudWorkspace(authSession);
@@ -1081,6 +1097,10 @@ export default function App() {
   const selectedDocument = useMemo(
     () => appState.documents.find((document) => document.id === selectedDocumentId) ?? null,
     [appState.documents, selectedDocumentId],
+  );
+  const captureReviewDocument = useMemo(
+    () => appState.documents.find((document) => document.id === captureReviewDocumentId) ?? null,
+    [appState.documents, captureReviewDocumentId],
   );
 
   const claims = useMemo(
@@ -1961,6 +1981,21 @@ export default function App() {
             setMileageVisible(true);
           }}
           onAddToVault={() => void handleAddToVault()}
+        />
+
+        <CaptureReviewScreen
+          document={captureReviewDocument}
+          ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
+          onClose={() => setCaptureReviewDocumentId(null)}
+          onSubmit={async (reviewFields) => {
+            if (!captureReviewDocument) {
+              return;
+            }
+            await updateDocumentReviewFields(captureReviewDocument.id, reviewFields);
+            setCaptureReviewDocumentId(null);
+            setSelectedDocumentId(null);
+            setActiveTab(captureReviewDocument.type === 'invoice' ? 'sales' : 'costs');
+          }}
         />
 
         <DocumentSheet
@@ -3371,6 +3406,169 @@ function ErrorLogSheet({
   );
 }
 
+function CaptureReviewScreen({
+  document,
+  ownerName,
+  onClose,
+  onSubmit,
+}: {
+  document: ExpenseDocument | null;
+  ownerName: string;
+  onClose: () => void;
+  onSubmit: (
+    reviewFields: Pick<ExpenseDocument, 'category' | 'description' | 'customer' | 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
+  ) => Promise<void>;
+}) {
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [descriptionInput, setDescriptionInput] = useState('');
+  const [customerInput, setCustomerInput] = useState('');
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [categorySearchInput, setCategorySearchInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!document) {
+      return;
+    }
+
+    setSelectedCategory(document.category ?? '');
+    setDescriptionInput(document.description ?? '');
+    setCustomerInput(document.customer ?? '');
+    setCategoryPickerVisible(false);
+    setCategorySearchInput('');
+    setSubmitting(false);
+  }, [document?.id, document?.updatedAt, document?.category, document?.description, document?.customer]);
+
+  if (!document) {
+    return null;
+  }
+
+  const categoryOptions = getCategoryOptions(document.workspaceContext);
+  const filteredCategoryOptions = categoryOptions.filter((option) =>
+    option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
+  );
+
+  return (
+    <>
+      <Modal
+        visible
+        transparent={false}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={onClose}
+      >
+        <SafeAreaView style={styles.captureReviewScreen}>
+          <View style={styles.captureReviewHeader}>
+            <Pressable onPress={onClose} style={styles.captureReviewHeaderButton}>
+              <Ionicons name="chevron-back" size={24} color={colors.nearBlack} />
+            </Pressable>
+            <Text style={styles.captureReviewHeaderTitle}>Review</Text>
+            <Pressable onPress={onClose} style={styles.captureReviewHeaderButton}>
+              <Ionicons name="ellipsis-vertical" size={20} color={colors.nearBlack} />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            style={styles.captureReviewScroll}
+            contentContainerStyle={styles.captureReviewScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable style={styles.captureReviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
+              <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Category'}</Text>
+            </Pressable>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Owned by</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{ownerName}</Text>
+            </View>
+            <View style={styles.captureReviewTextField}>
+              <TextInput
+                value={descriptionInput}
+                onChangeText={setDescriptionInput}
+                placeholder="Write your description here"
+                placeholderTextColor={colors.slate}
+                multiline
+                style={styles.captureReviewTextInput}
+              />
+            </View>
+            <Text style={styles.captureReviewSectionHeading}>More</Text>
+            <View style={styles.captureReviewTextField}>
+              <Text style={styles.captureReviewFieldValue}>Customer</Text>
+              <TextInput
+                value={customerInput}
+                onChangeText={setCustomerInput}
+                placeholder=""
+                placeholderTextColor={colors.slate}
+                style={styles.captureReviewSingleLineInput}
+              />
+            </View>
+          </ScrollView>
+
+          <View style={styles.captureReviewFooter}>
+            <Pressable
+              style={[styles.captureReviewSubmitButton, submitting && styles.captureReviewSubmitButtonDisabled]}
+              disabled={submitting}
+              onPress={async () => {
+                setSubmitting(true);
+                try {
+                  await onSubmit({
+                    category: selectedCategory || document.category,
+                    description: descriptionInput.trim(),
+                    customer: customerInput.trim(),
+                    amount: document.amount,
+                    netAmount: document.netAmount,
+                    vatAmount: document.vatAmount,
+                    taxAmount: document.taxAmount,
+                    taxRateApplied: document.taxRateApplied,
+                  });
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <Text style={styles.captureReviewSubmitButtonText}>{submitting ? 'Saving...' : 'Submit'}</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal transparent animationType="slide" visible={categoryPickerVisible} onRequestClose={() => setCategoryPickerVisible(false)}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetOverlay} onPress={() => setCategoryPickerVisible(false)} />
+          <View style={styles.categoryPickerSheet}>
+            <View style={styles.documentSheetHandle} />
+            <View style={styles.categoryPickerHeader}>
+              <TextInput
+                value={categorySearchInput}
+                onChangeText={setCategorySearchInput}
+                placeholder="Search"
+                placeholderTextColor={colors.slate}
+                style={styles.categoryPickerSearchInput}
+              />
+              <Pressable onPress={() => setCategoryPickerVisible(false)} style={styles.categoryPickerCloseButton}>
+                <Ionicons name="close" size={28} color={colors.nearBlack} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.categoryPickerList} keyboardShouldPersistTaps="handled">
+              {filteredCategoryOptions.map((option) => (
+                <Pressable
+                  key={option}
+                  style={styles.categoryPickerOption}
+                  onPress={() => {
+                    setSelectedCategory(option);
+                    setCategoryPickerVisible(false);
+                  }}
+                >
+                  <Text style={styles.categoryPickerOptionText}>{option}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
 function DocumentSheet({
   document,
   ownerName,
@@ -4573,6 +4771,113 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.royalBlueDark,
+  },
+  captureReviewScreen: {
+    flex: 1,
+    backgroundColor: colors.white,
+  },
+  captureReviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 18,
+  },
+  captureReviewHeaderButton: {
+    width: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captureReviewHeaderTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.nearBlack,
+    marginLeft: 12,
+  },
+  captureReviewScroll: {
+    flex: 1,
+  },
+  captureReviewScrollContent: {
+    paddingBottom: 24,
+  },
+  captureReviewFieldButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  captureReviewFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  captureReviewFieldLabel: {
+    fontSize: 16,
+    color: colors.nearBlack,
+  },
+  captureReviewFieldValue: {
+    fontSize: 16,
+    color: colors.nearBlack,
+  },
+  captureReviewFieldValueRight: {
+    fontSize: 16,
+    color: colors.nearBlack,
+    textAlign: 'right',
+  },
+  captureReviewTextField: {
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  captureReviewTextInput: {
+    minHeight: 72,
+    fontSize: 16,
+    color: colors.nearBlack,
+    textAlignVertical: 'top',
+    padding: 0,
+  },
+  captureReviewSingleLineInput: {
+    fontSize: 16,
+    color: colors.nearBlack,
+    padding: 0,
+    marginTop: 10,
+  },
+  captureReviewSectionHeading: {
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.nearBlack,
+    backgroundColor: colors.band,
+  },
+  captureReviewFooter: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 20,
+    backgroundColor: colors.white,
+  },
+  captureReviewSubmitButton: {
+    borderRadius: 8,
+    backgroundColor: colors.royalBlueDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+  },
+  captureReviewSubmitButtonDisabled: {
+    opacity: 0.7,
+  },
+  captureReviewSubmitButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.white,
   },
   documentSheet: {
     backgroundColor: colors.white,
