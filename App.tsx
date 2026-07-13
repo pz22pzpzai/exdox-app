@@ -179,7 +179,7 @@ const buildManualDraftDocument = ({
     taxAmount: 0,
     currency: 'GBP',
     status: 'awaiting_review',
-    category: isInvoice ? 'Accounts Payable' : 'General',
+    category: '',
     description: '',
     customer: '',
     date: now,
@@ -3474,7 +3474,7 @@ function CaptureReviewScreen({
             showsVerticalScrollIndicator={false}
           >
             <Pressable style={styles.captureReviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
-              <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Category'}</Text>
+              <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Select category'}</Text>
             </Pressable>
             <View style={styles.captureReviewFieldRow}>
               <Text style={styles.captureReviewFieldLabel}>Owned by</Text>
