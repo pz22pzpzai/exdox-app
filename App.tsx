@@ -1514,7 +1514,14 @@ export default function App() {
     );
   });
 
-  const updateDocumentStatus = useEffectEvent(async (documentId: string, status: ExpenseDocument['status']) => {
+  const updateDocumentStatus = useEffectEvent(async (
+    documentId: string,
+    status: ExpenseDocument['status'],
+    successConfirmation?: {
+      title: string;
+      message: string;
+    },
+  ) => {
     const updatedAt = new Date().toISOString();
     updateState((current) => ({
       ...current,
@@ -1524,6 +1531,9 @@ export default function App() {
     }));
     try {
       await syncDocumentToCloud(documentId, { status });
+      if (successConfirmation) {
+        Alert.alert(successConfirmation.title, successConfirmation.message);
+      }
     } catch (error) {
       void recordError('update document status', error);
       Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
@@ -1919,7 +1929,10 @@ export default function App() {
           onClose={() => setSelectedDocumentId(null)}
           onMarkReviewed={() => {
             if (selectedDocument) {
-              void updateDocumentStatus(selectedDocument.id, 'ready_to_submit');
+              void updateDocumentStatus(selectedDocument.id, 'ready_to_submit', {
+                title: 'Marked reviewed',
+                message: 'This receipt has been marked as reviewed.',
+              });
             }
           }}
           onAddToClaim={() => {
@@ -1934,7 +1947,10 @@ export default function App() {
           }}
           onMarkSubmitted={() => {
             if (selectedDocument) {
-              void updateDocumentStatus(selectedDocument.id, 'submitted');
+              void updateDocumentStatus(selectedDocument.id, 'submitted', {
+                title: 'Marked submitted',
+                message: 'This receipt has been marked as submitted.',
+              });
             }
           }}
           onDelete={() => {
