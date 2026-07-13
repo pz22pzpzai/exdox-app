@@ -1543,6 +1543,10 @@ export default function App() {
   const updateDocumentTaxFields = useEffectEvent(async (
     documentId: string,
     taxFields: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
+    successConfirmation?: {
+      title: string;
+      message: string;
+    },
   ) => {
     const updatedAt = new Date().toISOString();
     updateState((current) => ({
@@ -1553,6 +1557,9 @@ export default function App() {
     }));
     try {
       await syncDocumentToCloud(documentId, taxFields);
+      if (successConfirmation) {
+        Alert.alert(successConfirmation.title, successConfirmation.message);
+      }
     } catch (error) {
       void recordError('update tax fields', error);
       Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
@@ -1942,7 +1949,10 @@ export default function App() {
           }}
           onUpdateTaxFields={(taxFields) => {
             if (selectedDocument) {
-              void updateDocumentTaxFields(selectedDocument.id, taxFields);
+              void updateDocumentTaxFields(selectedDocument.id, taxFields, {
+                title: 'Values saved',
+                message: 'The tax values have been saved.',
+              });
             }
           }}
           onMarkSubmitted={() => {
@@ -3473,12 +3483,12 @@ function DocumentSheet({
                 });
               }}
             >
-              <Text style={styles.taxSaveButtonText}>Save tax values</Text>
+              <Text style={styles.taxSaveButtonText}>Save Values</Text>
             </Pressable>
           </View>
               <View style={styles.documentSheetActions}>
-            <Pressable style={styles.sheetActionButton} onPress={onMarkReviewed}>
-              <Text style={styles.sheetActionText}>Mark reviewed</Text>
+            <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkReviewed}>
+              <Text style={styles.sheetActionPrimaryText}>Mark reviewed</Text>
             </Pressable>
             {document.workspaceContext === 'cost' && document.paymentMethod === 'cash_personal' ? (
               <Pressable style={styles.sheetActionButton} onPress={onAddToClaim}>
