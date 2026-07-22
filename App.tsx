@@ -1706,6 +1706,7 @@ export default function App() {
       title: string;
       message: string;
     },
+    syncStrategy: 'wait' | 'background' = 'wait',
   ) => {
     const updatedAt = new Date().toISOString();
     updateState((current) => ({
@@ -1714,6 +1715,16 @@ export default function App() {
         document.id === documentId ? { ...document, ...reviewFields, needsReview: true, updatedAt } : document,
       ),
     }));
+    if (syncStrategy === 'background') {
+      if (successConfirmation) {
+        Alert.alert(successConfirmation.title, successConfirmation.message);
+      }
+      void syncDocumentToCloud(documentId, reviewFields).catch((error) => {
+        void recordError('update review fields', error);
+        Alert.alert('Sync failed', error instanceof Error ? error.message : 'Could not sync this receipt update.');
+      });
+      return;
+    }
     try {
       await syncDocumentToCloud(documentId, reviewFields);
       if (successConfirmation) {
@@ -2127,7 +2138,7 @@ export default function App() {
               void updateDocumentReviewFields(selectedDocument.id, reviewFields, {
                 title: 'Values saved',
                 message: 'The receipt values have been saved.',
-              });
+              }, 'background');
             }
           }}
           onMarkSubmitted={() => {
