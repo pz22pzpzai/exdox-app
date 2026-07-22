@@ -225,7 +225,7 @@ const applyExtractedDocumentDraft = (
   taxRateApplied: extracted.taxRateApplied ?? document.taxRateApplied ?? 'No VAT',
   taxAmount: extracted.taxAmount ?? document.taxAmount,
   currency: extracted.currency ?? document.currency,
-  category: extracted.category ?? document.category,
+  category: document.category.trim() ? document.category : extracted.category ?? document.category,
   description: extracted.description ?? document.description ?? '',
   customer: extracted.customer ?? document.customer ?? '',
   dueDate: extracted.dueDate,
@@ -247,6 +247,28 @@ const applyExtractedDocumentDraft = (
   workspaceContext: extracted.workspaceContext ?? document.workspaceContext,
   paymentMethod: extracted.paymentMethod ?? document.paymentMethod,
 });
+
+const markDuplicateUploadDraft = (
+  currentDocument: ExpenseDocument | undefined,
+  extracted: ExtractedDocumentDraft,
+  documents: ExpenseDocument[],
+): ExtractedDocumentDraft => {
+  if (!currentDocument || extracted.cloudReceiptId || extractionLooksLikeDuplicateUpload(extracted)) {
+    return extracted;
+  }
+
+  const nextDocument = applyExtractedDocumentDraft(currentDocument, extracted);
+  const matchingCloudDocument = documents.find((candidate) => isLikelyDuplicateReceiptMatch(nextDocument, candidate));
+  if (!matchingCloudDocument) {
+    return extracted;
+  }
+
+  return {
+    ...extracted,
+    notes: duplicateReceiptStatusMessage,
+    needsReview: true,
+  };
+};
 
 const canPreviewDocumentInline = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) =>
   Boolean(document.fileUri) &&
@@ -312,6 +334,14 @@ const normalizeDocumentFileName = (fileName: string) =>
     .replace(/\.[^/.]+$/, '')
     .replace(/[^a-z0-9]+/g, '');
 
+const normalizeDuplicateComparisonText = (value: string | null | undefined) =>
+  (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+const duplicateReceiptStatusMessage = 'Upload error: Duplicate receipt';
+
 const getDocumentFileNameCandidates = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) => {
   const candidates = new Set<string>();
   const normalizedFileName = normalizeDocumentFileName(document.fileName);
@@ -361,6 +391,34 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
   }
 
   return Math.abs(localCreatedAt - cloudCreatedAt) <= 1000 * 60 * 15;
+};
+
+const extractionLooksLikeDuplicateUpload = (input: { notes?: string | null }) =>
+  /upload error:\s*duplicate receipt|duplicate receipt/.test((input.notes ?? '').toLowerCase());
+
+const isLikelyDuplicateReceiptMatch = (document: ExpenseDocument, candidate: ExpenseDocument) => {
+  if (!candidate.cloudReceiptId || document.id === candidate.id) {
+    return false;
+  }
+
+  if (document.type !== candidate.type || document.workspaceContext !== candidate.workspaceContext) {
+    return false;
+  }
+
+  const amountMatches = Math.abs((document.amount ?? 0) - (candidate.amount ?? 0)) < 0.01;
+  if (!amountMatches || document.amount <= 0 || candidate.amount <= 0) {
+    return false;
+  }
+
+  const documentDate = new Date(document.date).toISOString().slice(0, 10);
+  const candidateDate = new Date(candidate.date).toISOString().slice(0, 10);
+  if (documentDate !== candidateDate) {
+    return false;
+  }
+
+  const documentSupplier = normalizeDuplicateComparisonText(document.supplier || document.title);
+  const candidateSupplier = normalizeDuplicateComparisonText(candidate.supplier || candidate.title);
+  return Boolean(documentSupplier) && documentSupplier === candidateSupplier;
 };
 
 const mergeWorkspaceDocuments = (
@@ -920,12 +978,13 @@ export default function App() {
         skipProcessing: workspaceContext === 'vault',
       });
       const currentDocument = appState.documents.find((document) => document.id === documentId);
-      const nextDocument = currentDocument ? applyExtractedDocumentDraft(currentDocument, extracted) : null;
+      const extractedWithDuplicateHint = markDuplicateUploadDraft(currentDocument, extracted, appState.documents);
+      const nextDocument = currentDocument ? applyExtractedDocumentDraft(currentDocument, extractedWithDuplicateHint) : null;
       await recordDiagnostic(source, `Background upload complete for ${fileName}`);
       updateState((current) => ({
         ...current,
         documents: current.documents.map((document) =>
-          document.id === documentId ? applyExtractedDocumentDraft(document, extracted) : document,
+          document.id === documentId ? applyExtractedDocumentDraft(document, extractedWithDuplicateHint) : document,
         ),
       }));
       if (authSession && extracted.cloudReceiptId && nextDocument) {
@@ -2722,9 +2781,12 @@ const DocumentRow = memo(function DocumentRow({
   const hasPreviewImage = canPreviewDocumentInline(document);
   const isProcessing = document.extractionStatus === 'pending';
   const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
+  const isDuplicateReceipt = extractionLooksLikeDuplicateUpload(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading receipt...'
+      : isDuplicateReceipt
+        ? duplicateReceiptStatusMessage
       : isUnreadableReceipt
         ? 'Unable to read receipt, tap to enter manually or retry uploading receipt'
         : document.needsReview
@@ -3648,7 +3710,7 @@ function DocumentSheet({
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'
       : document.extractionStatus === 'failed'
-        ? 'Could not read receipt or invoice.'
+        ? 'Unable to read receipt, tap to enter manually or retry uploading receipt'
         : document.needsReview
           ? 'Extraction finished. Review the details before submitting.'
           : 'Extraction finished.';
