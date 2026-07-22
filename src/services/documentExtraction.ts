@@ -136,6 +136,9 @@ class LocalMockExtractionService implements DocumentExtractionService {
 
       const payload = JSON.parse(response.body) as ExpenseApiResponse | ExpenseApiError;
       if (response.status < 200 || response.status >= 300 || !('success' in payload) || payload.success !== true) {
+        if ('error' in payload && payload.error === 'duplicate_receipt') {
+          return buildDuplicateDraft(type, fileName);
+        }
         throw new Error(
           'message' in payload && typeof payload.message === 'string'
             ? payload.message
@@ -179,6 +182,9 @@ class LocalMockExtractionService implements DocumentExtractionService {
     } catch (error) {
       console.error('document extraction failed', error);
       const message = error instanceof Error ? error.message : String(error);
+      if (looksLikeDuplicateReceiptMessage(message)) {
+        return buildDuplicateDraft(type, fileName);
+      }
       if (looksLikeUnreadableReceiptMessage(message)) {
         return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt');
       }
@@ -222,6 +228,7 @@ type ExpenseApiResponse = {
 
 type ExpenseApiError = {
   success: false;
+  error?: string;
   message?: string;
 };
 
@@ -295,6 +302,35 @@ function buildPendingDraft(type: DocumentKind, fileName: string): ExtractedDocum
     taxBreakdown: [],
     extractionOutcome: 'pending',
   };
+}
+
+function buildDuplicateDraft(type: DocumentKind, fileName: string): ExtractedDocumentDraft {
+  return {
+    supplier: formatNameFallback(fileName, type),
+    amount: 0,
+    netAmount: 0,
+    vatAmount: 0,
+    taxRateApplied: 'No VAT',
+    taxAmount: 0,
+    currency: 'GBP',
+    category: type === 'invoice' ? 'Accounts Payable' : 'General',
+    notes: 'Error: Duplicate',
+    dueDate:
+      type === 'invoice'
+        ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString()
+        : undefined,
+    invoiceNumber: type === 'invoice' ? `INV-${Date.now().toString().slice(-5)}` : undefined,
+    extractionSource: 'fallback_review',
+    confidenceScore: null,
+    needsReview: true,
+    lineItems: [],
+    taxBreakdown: [],
+    extractionOutcome: 'failed',
+  };
+}
+
+function looksLikeDuplicateReceiptMessage(message: string) {
+  return /error:\s*duplicate|duplicate receipt/.test(message.toLowerCase());
 }
 
 function looksLikeUnreadableReceiptMessage(message: string) {

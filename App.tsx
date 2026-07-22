@@ -341,7 +341,7 @@ const normalizeDuplicateComparisonText = (value: string | null | undefined) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 
-const duplicateReceiptStatusMessage = 'Upload error: Duplicate receipt';
+const duplicateReceiptStatusMessage = 'Error: Duplicate';
 
 const getDocumentFileNameCandidates = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) => {
   const candidates = new Set<string>();
