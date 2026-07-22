@@ -458,9 +458,11 @@ const mergeWorkspaceDocuments = (
     return {
       ...document,
       id: mergedLocalDocument.id,
+      category: mergedLocalDocument.category.trim() ? mergedLocalDocument.category : document.category,
       fileUri: mergedLocalDocument.fileUri ?? document.fileUri,
       source: mergedLocalDocument.source,
       createdAt: mergedLocalDocument.createdAt,
+      updatedAt: mergedLocalDocument.updatedAt ?? document.updatedAt,
     };
   });
 
@@ -2824,7 +2826,13 @@ const DocumentRow = memo(function DocumentRow({
 }, (previousProps, nextProps) =>
   previousProps.compact === nextProps.compact &&
   previousProps.document.id === nextProps.document.id &&
+  previousProps.document.title === nextProps.document.title &&
+  previousProps.document.amount === nextProps.document.amount &&
+  previousProps.document.date === nextProps.document.date &&
   previousProps.document.status === nextProps.document.status &&
+  previousProps.document.extractionStatus === nextProps.document.extractionStatus &&
+  previousProps.document.needsReview === nextProps.document.needsReview &&
+  previousProps.document.notes === nextProps.document.notes &&
   previousProps.document.updatedAt === nextProps.document.updatedAt &&
   previousProps.document.fileUri === nextProps.document.fileUri &&
   previousProps.selectionMode === nextProps.selectionMode &&
@@ -3500,7 +3508,7 @@ function CaptureReviewScreen({
     setCategoryPickerVisible(false);
     setCategorySearchInput('');
     setSubmitting(false);
-  }, [document?.id, document?.updatedAt, document?.category, document?.description, document?.customer]);
+  }, [document?.id]);
 
   if (!document) {
     return null;
@@ -3683,18 +3691,7 @@ function DocumentSheet({
     setCategoryPickerVisible(false);
     setCategorySearchInput('');
     setPreviewVisible(false);
-  }, [
-    document?.id,
-    document?.updatedAt,
-    document?.amount,
-    document?.netAmount,
-    document?.vatAmount,
-    document?.taxAmount,
-    document?.taxRateApplied,
-    document?.category,
-    document?.description,
-    document?.customer,
-  ]);
+  }, [document?.id]);
 
   if (!document) {
     return null;
