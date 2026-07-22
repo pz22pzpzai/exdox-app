@@ -102,9 +102,8 @@ export const buildDraftDocument = async ({
     fileName,
     source,
     extractionStatus:
-      extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted)
-        ? 'complete'
-        : 'failed',
+      extracted.extractionOutcome ??
+      (extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted) ? 'complete' : 'failed'),
     extractionSource: extracted.extractionSource,
     confidenceScore: extracted.confidenceScore ?? null,
     needsReview: extracted.needsReview ?? true,

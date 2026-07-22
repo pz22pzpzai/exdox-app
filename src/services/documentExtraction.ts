@@ -67,6 +67,7 @@ export interface ExtractedDocumentDraft {
   storageBucket?: string;
   workspaceContext?: WorkspaceContext;
   paymentMethod?: PaymentMethod;
+  extractionOutcome?: 'pending' | 'complete' | 'failed';
 }
 
 export interface DocumentExtractionService {
@@ -92,7 +93,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
     workspaceContext,
     paymentMethod,
     skipProcessing,
-  }: {
+    }: {
     type: DocumentKind;
     fileName: string;
     uri?: string;
@@ -101,7 +102,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
     skipProcessing?: boolean;
-  }): Promise<ExtractedDocumentDraft> {
+    }): Promise<ExtractedDocumentDraft> {
     if (!uri) {
       return buildFallbackDraft(type, fileName, 'No file URI was available for upload.');
     }
@@ -143,7 +144,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
       }
 
       if (shouldTreatPayloadAsUnreadable(payload.document)) {
-        return buildFallbackDraft(type, fileName, 'Could not read receipt or invoice.');
+        return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt');
       }
 
       return {
@@ -173,10 +174,16 @@ class LocalMockExtractionService implements DocumentExtractionService {
         storageBucket: payload.storage.bucket,
         workspaceContext: payload.workspaceContext,
         paymentMethod: payload.options.paymentMethod,
+        extractionOutcome: 'complete',
       };
     } catch (error) {
       console.error('document extraction failed', error);
-      return buildFallbackDraft(type, fileName, 'Automatic extraction failed, so this upload is ready for manual review.');
+      const message = error instanceof Error ? error.message : String(error);
+      if (looksLikeUnreadableReceiptMessage(message)) {
+        return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt');
+      }
+
+      return buildPendingDraft(type, fileName);
     }
   }
 }
@@ -261,7 +268,39 @@ function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string)
     needsReview: true,
     lineItems: [],
     taxBreakdown: [],
+    extractionOutcome: 'failed',
   };
+}
+
+function buildPendingDraft(type: DocumentKind, fileName: string): ExtractedDocumentDraft {
+  return {
+    supplier: formatNameFallback(fileName, type),
+    amount: 0,
+    netAmount: 0,
+    vatAmount: 0,
+    taxRateApplied: 'No VAT',
+    taxAmount: 0,
+    currency: 'GBP',
+    category: type === 'invoice' ? 'Accounts Payable' : 'General',
+    notes: 'Receipt upload is still processing. Waiting for the finished result.',
+    dueDate:
+      type === 'invoice'
+        ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString()
+        : undefined,
+    invoiceNumber: type === 'invoice' ? `INV-${Date.now().toString().slice(-5)}` : undefined,
+    extractionSource: 'backend_proxy',
+    confidenceScore: null,
+    needsReview: true,
+    lineItems: [],
+    taxBreakdown: [],
+    extractionOutcome: 'pending',
+  };
+}
+
+function looksLikeUnreadableReceiptMessage(message: string) {
+  return /could not read receipt|could not read invoice|could not read amount|unable to read receipt|unable to read invoice|unable to read amount|blank image|blank file|no receipt visible|no invoice visible|not clearly visible/.test(
+    message.toLowerCase(),
+  );
 }
 
 function formatNameFallback(fileName: string, type: DocumentKind) {

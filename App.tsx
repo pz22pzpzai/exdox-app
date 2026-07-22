@@ -207,6 +207,10 @@ const buildManualDraftDocument = ({
   };
 };
 
+const resolveExtractedDraftStatus = (extracted: ExtractedDocumentDraft): ExpenseDocument['extractionStatus'] =>
+  extracted.extractionOutcome ??
+  (extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted) ? 'complete' : 'failed');
+
 const applyExtractedDocumentDraft = (
   document: ExpenseDocument,
   extracted: ExtractedDocumentDraft,
@@ -231,10 +235,7 @@ const applyExtractedDocumentDraft = (
   dueDate: extracted.dueDate,
   invoiceNumber: extracted.invoiceNumber,
   notes: extracted.notes || document.notes,
-  extractionStatus:
-    extracted.extractionSource === 'backend_proxy' && !extractionLooksUnreadable(extracted)
-      ? 'complete'
-      : 'failed',
+  extractionStatus: resolveExtractedDraftStatus(extracted),
   extractionSource: extracted.extractionSource,
   confidenceScore: extracted.confidenceScore ?? null,
   needsReview: extracted.needsReview ?? true,
@@ -979,7 +980,7 @@ export default function App() {
         paymentMethod,
         skipProcessing: workspaceContext === 'vault',
       });
-      const currentDocument = appState.documents.find((document) => document.id === documentId);
+      let currentDocument = appState.documents.find((document) => document.id === documentId);
       const extractedWithDuplicateHint = markDuplicateUploadDraft(currentDocument, extracted, appState.documents);
       const nextDocument = currentDocument ? applyExtractedDocumentDraft(currentDocument, extractedWithDuplicateHint) : null;
       await recordDiagnostic(source, `Background upload complete for ${fileName}`);
@@ -989,6 +990,51 @@ export default function App() {
           document.id === documentId ? applyExtractedDocumentDraft(document, extractedWithDuplicateHint) : document,
         ),
       }));
+      if (resolveExtractedDraftStatus(extractedWithDuplicateHint) === 'pending') {
+        await recordDiagnostic(source, `Waiting for cloud extraction handshake for ${fileName}`);
+        if (authSession) {
+          let cloudMatchFound = false;
+          for (let attempt = 1; attempt <= 8; attempt += 1) {
+            await delay(3000);
+            const latestLocalDocument =
+              appState.documents.find((document) => document.id === documentId) ?? currentDocument ?? nextDocument;
+            if (!latestLocalDocument) {
+              break;
+            }
+
+            try {
+              const cloudDocuments = await fetchCloudReceipts(workspaceContext);
+              const matchingCloudDocument = cloudDocuments.find(
+                (candidate) =>
+                  (latestLocalDocument.cloudReceiptId && candidate.cloudReceiptId === latestLocalDocument.cloudReceiptId) ||
+                  isLikelyTimedOutUploadDuplicate(latestLocalDocument, candidate),
+              );
+              if (!matchingCloudDocument) {
+                continue;
+              }
+
+              cloudMatchFound = true;
+              await recordDiagnostic(source, `Cloud extraction handshake received for ${fileName} on attempt ${attempt}`);
+              setAppState((current) => ({
+                ...current,
+                documents: mergeWorkspaceDocuments(current.documents, cloudDocuments, deletedCloudReceiptIdsRef.current),
+              }));
+              break;
+            } catch (error) {
+              if (!isTransientNetworkError(error)) {
+                throw error;
+              }
+            }
+          }
+
+          if (!cloudMatchFound) {
+            await recordDiagnostic(source, `Cloud extraction handshake still pending for ${fileName}`);
+            await syncCloudWorkspace(authSession);
+          }
+        }
+
+        return;
+      }
       if (authSession && extracted.cloudReceiptId && nextDocument) {
         await updateCloudReceipt(extracted.cloudReceiptId, {
           category: nextDocument.category,
