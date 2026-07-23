@@ -2821,7 +2821,6 @@ function SettingsScreen({
         label={`Error log${errorLogCount ? ` (${errorLogCount})` : ''}`}
         onPress={onOpenErrorLog}
       />
-      <SettingsButton icon="log-out-outline" label="Sign out" onPress={onSignOut} />
 
       <View style={styles.settingsGroup}>
         {role === 'Business_Admin' && organisationSettings ? (
@@ -2875,6 +2874,7 @@ function SettingsScreen({
           onValueChange={(value) => onUpdateSetting('marketingNotifications', value)}
         />
       </View>
+      <SettingsButton icon="log-out-outline" label="Log out" onPress={onSignOut} />
     </View>
   );
 }
@@ -2981,7 +2981,7 @@ const DocumentRow = memo(function DocumentRow({
       : isUnreadableReceipt
         ? 'Unable to read receipt, tap to enter manually or retry uploading receipt'
         : document.needsReview
-          ? 'Check extracted details'
+          ? 'To be reviewed'
           : null;
 
   return (
@@ -4962,14 +4962,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 26,
     backgroundColor: colors.white,
   },
   bottomItem: {
     alignItems: 'center',
-    width: 68,
+    flex: 1,
+    minWidth: 54,
   },
   bottomLabel: {
     marginTop: 6,
@@ -4989,6 +4991,7 @@ const styles = StyleSheet.create({
     height: 58,
     borderRadius: 29,
     backgroundColor: colors.royalBlueDark,
+    marginHorizontal: 8,
     marginTop: -6,
   },
   capturePrimaryButton: {
