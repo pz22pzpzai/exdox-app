@@ -126,6 +126,13 @@ const normalizeState = (saved: Partial<AppState>): AppState => ({
     ...seedState.settings,
     ...(saved.settings ?? {}),
   },
+  organisationSettings: saved.organisationSettings
+    ? {
+        ...saved.organisationSettings,
+        isVatRegistered: saved.organisationSettings.isVatRegistered !== false,
+        defaultTaxRate: saved.organisationSettings.defaultTaxRate ?? '20% Standard',
+      }
+    : null,
 });
 
 function getScopedStateKey(scope: string) {

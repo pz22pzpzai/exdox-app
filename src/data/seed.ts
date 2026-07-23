@@ -12,4 +12,5 @@ export const seedState: AppState = {
     marketingNotifications: false,
     theme: 'system',
   },
+  organisationSettings: null,
 };

@@ -39,6 +39,7 @@ import {
   fetchExpenseClaims,
   updateCloudReceipt,
 } from './src/services/receiptsApi';
+import { fetchOrganisationSettings, saveOrganisationSettings } from './src/services/settingsApi';
 import { setSessionToken } from './src/services/session';
 import { colors, radius, spacing } from './src/theme';
 import {
@@ -48,6 +49,7 @@ import {
   Claim,
   DocumentKind,
   ExpenseDocument,
+  OrganisationSettings,
   PaymentMethod,
   UkTaxRate,
   UserSettings,
@@ -326,6 +328,23 @@ const resolveDocumentAmount = ({
   }
 
   return amount ?? 0;
+};
+
+const isVatTrackingEnabled = (settings: OrganisationSettings | null) => settings?.isVatRegistered !== false;
+
+const normalizeVatDisabledValues = ({
+  amount,
+  netAmount,
+  vatAmount,
+}: Pick<ExpenseDocument, 'amount' | 'netAmount' | 'vatAmount'>) => {
+  const grossAmount = resolveDocumentAmount({ amount, netAmount, vatAmount });
+  return {
+    amount: grossAmount,
+    netAmount: grossAmount,
+    vatAmount: 0,
+    taxAmount: 0,
+    taxRateApplied: 'No VAT' as UkTaxRate,
+  };
 };
 
 const normalizeDocumentFileName = (fileName: string) =>
@@ -628,6 +647,7 @@ export default function App() {
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const isAdmin = authSession?.user.role === 'Business_Admin';
+  const vatTrackingEnabled = isVatTrackingEnabled(appState.organisationSettings);
   const effectiveTheme: ThemeOption =
     appState.settings.theme === 'system' ? (systemTheme === 'dark' ? 'dark' : 'light') : appState.settings.theme;
   const shellBackgroundStyle = effectiveTheme === 'dark' ? styles.shellDark : null;
@@ -773,6 +793,15 @@ export default function App() {
     const savedState = await loadScopedStoredState(String(session.user.id));
     setAuthSession(session);
     setAppState(savedState ?? seedState);
+    try {
+      const organisationSettings = await fetchOrganisationSettings();
+      setAppState((current) => ({
+        ...current,
+        organisationSettings,
+      }));
+    } catch (error) {
+      void recordError('organisation settings', error);
+    }
     await syncCloudWorkspace(session);
   });
 
@@ -1062,8 +1091,21 @@ export default function App() {
       return;
     }
 
+    if (!appState.organisationSettings) {
+      fetchOrganisationSettings()
+        .then((organisationSettings) => {
+          setAppState((current) => ({
+            ...current,
+            organisationSettings,
+          }));
+        })
+        .catch((error) => {
+          void recordError('organisation settings', error);
+        });
+    }
+
     void syncCloudWorkspace(authSession);
-  }, [authSession, syncCloudWorkspace]);
+  }, [appState.organisationSettings, authSession, recordError, syncCloudWorkspace]);
 
   useEffect(() => {
     if (!pendingGalleryOpen || cameraVisible) {
@@ -1236,14 +1278,16 @@ export default function App() {
 
   const analyticsSummary = useMemo(() => {
     const total = filteredDocuments.reduce((sum, document) => sum + document.amount, 0);
-    const vatTotal = filteredDocuments.reduce((sum, document) => sum + document.vatAmount, 0);
+    const vatTotal = vatTrackingEnabled
+      ? filteredDocuments.reduce((sum, document) => sum + document.vatAmount, 0)
+      : 0;
     return {
       total,
       vatTotal,
       reviewCount: appState.documents.filter((document) => document.status === 'awaiting_review').length,
       submittedCount: appState.documents.filter((document) => document.status === 'submitted').length,
     };
-  }, [appState.documents, filteredDocuments]);
+  }, [appState.documents, filteredDocuments, vatTrackingEnabled]);
 
   const inboundEmailAddress = useMemo(() => {
     if (!authSession) {
@@ -2040,6 +2084,7 @@ export default function App() {
               accountEmail={authSession.user.email}
               role={authSession.user.role}
               settings={appState.settings}
+              organisationSettings={appState.organisationSettings}
               errorLogCount={errorLogs.length}
               onUpdateSetting={updateSettings}
               onOpenTheme={() => setThemeVisible(true)}
@@ -2119,6 +2164,7 @@ export default function App() {
         <DocumentSheet
           document={selectedDocument}
           ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
+          vatTrackingEnabled={vatTrackingEnabled}
           onClose={() => setSelectedDocumentId(null)}
           onMarkReviewed={() => {
             if (selectedDocument) {
@@ -2238,13 +2284,33 @@ export default function App() {
           visible={Boolean(settingsPanelTarget)}
           target={settingsPanelTarget}
           role={authSession.user.role}
+          organisationSettings={appState.organisationSettings}
           inboundEmailAddress={inboundEmailAddress}
           analyticsSummary={analyticsSummary}
+          vatTrackingEnabled={vatTrackingEnabled}
           vehicles={appState.vehicles}
           vehicleNameInput={vehicleNameInput}
           vehicleRegistrationInput={vehicleRegistrationInput}
           editingVehicleId={editingVehicleId}
           onClose={() => setSettingsPanelTarget(null)}
+          onSaveOrganisationSettings={async (nextSettings) => {
+            const savedSettings = await saveOrganisationSettings(nextSettings);
+            setAppState((current) => ({
+              ...current,
+              organisationSettings: savedSettings,
+              documents: current.documents.map((document) =>
+                savedSettings.isVatRegistered
+                  ? document
+                  : {
+                      ...document,
+                      ...normalizeVatDisabledValues(document),
+                    },
+              ),
+            }));
+            if (authSession) {
+              await syncCloudWorkspace(authSession);
+            }
+          }}
           onExport={() => void handleTeamExport()}
           onChangeVehicleName={setVehicleNameInput}
           onChangeVehicleRegistration={setVehicleRegistrationInput}
@@ -2648,6 +2714,7 @@ function SettingsScreen({
   accountEmail,
   role,
   settings,
+  organisationSettings,
   errorLogCount,
   onUpdateSetting,
   onOpenTheme,
@@ -2659,6 +2726,7 @@ function SettingsScreen({
   accountEmail: string;
   role: 'Business_Admin' | 'Standard_Employee';
   settings: UserSettings;
+  organisationSettings: OrganisationSettings | null;
   errorLogCount: number;
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   onOpenTheme: () => void;
@@ -2701,6 +2769,15 @@ function SettingsScreen({
       <SettingsButton icon="log-out-outline" label="Sign out" onPress={onSignOut} />
 
       <View style={styles.settingsGroup}>
+        {role === 'Business_Admin' && organisationSettings ? (
+          <View style={styles.settingRow}>
+            <View style={styles.settingLabelWrap}>
+              <Ionicons name="receipt-outline" size={22} color={colors.nearBlack} />
+              <Text style={styles.settingLabel}>Business is VAT Registered</Text>
+            </View>
+            <Text style={styles.settingValue}>{organisationSettings.isVatRegistered ? 'On' : 'Off'}</Text>
+          </View>
+        ) : null}
         <SettingToggleRow
           icon="camera-outline"
           label="Open on camera"
@@ -3339,13 +3416,16 @@ function SettingsPanelSheet({
   visible,
   target,
   role,
+  organisationSettings,
   inboundEmailAddress,
   analyticsSummary,
+  vatTrackingEnabled,
   vehicles,
   vehicleNameInput,
   vehicleRegistrationInput,
   editingVehicleId,
   onClose,
+  onSaveOrganisationSettings,
   onExport,
   onChangeVehicleName,
   onChangeVehicleRegistration,
@@ -3356,13 +3436,18 @@ function SettingsPanelSheet({
   visible: boolean;
   target: SettingsPanelTarget | null;
   role: 'Business_Admin' | 'Standard_Employee';
+  organisationSettings: OrganisationSettings | null;
   inboundEmailAddress: string;
   analyticsSummary: { total: number; vatTotal: number; reviewCount: number; submittedCount: number };
+  vatTrackingEnabled: boolean;
   vehicles: Vehicle[];
   vehicleNameInput: string;
   vehicleRegistrationInput: string;
   editingVehicleId: string | null;
   onClose: () => void;
+  onSaveOrganisationSettings: (
+    nextSettings: Pick<OrganisationSettings, 'isVatRegistered' | 'defaultTaxRate'>,
+  ) => Promise<void>;
   onExport: () => void;
   onChangeVehicleName: (value: string) => void;
   onChangeVehicleRegistration: (value: string) => void;
@@ -3373,6 +3458,8 @@ function SettingsPanelSheet({
   if (!visible || !target) {
     return null;
   }
+
+  const vatToggleDisabled = role !== 'Business_Admin' || !organisationSettings;
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
@@ -3387,6 +3474,32 @@ function SettingsPanelSheet({
                 {role === 'Business_Admin'
                   ? 'Admin access is active on this workspace.'
                   : 'This workspace is signed in without business admin permissions.'}
+              </Text>
+              <View style={styles.settingRow}>
+                <View style={styles.settingLabelWrap}>
+                  <Ionicons name="receipt-outline" size={22} color={colors.nearBlack} />
+                  <Text style={styles.settingLabel}>Business is VAT Registered</Text>
+                </View>
+                <Switch
+                  disabled={vatToggleDisabled}
+                  value={organisationSettings?.isVatRegistered !== false}
+                  onValueChange={(value) => {
+                    if (!organisationSettings) {
+                      return;
+                    }
+                    void onSaveOrganisationSettings({
+                      isVatRegistered: value,
+                      defaultTaxRate: organisationSettings.defaultTaxRate,
+                    });
+                  }}
+                  trackColor={{ false: colors.softBlueGrey, true: colors.softBlueGrey }}
+                  thumbColor={colors.nearBlack}
+                />
+              </View>
+              <Text style={styles.panelMuted}>
+                {organisationSettings?.isVatRegistered !== false
+                  ? `Net, VAT, and Total stay visible. Default tax rate: ${organisationSettings?.defaultTaxRate ?? '20% Standard'}.`
+                  : 'VAT tracking is off, so the app now works in gross-total mode and VAT exports as 0.00.'}
               </Text>
             </>
           ) : null}
@@ -3412,7 +3525,7 @@ function SettingsPanelSheet({
                 </View>
                 <View style={styles.analyticsCard}>
                   <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.vatTotal)}</Text>
-                  <Text style={styles.analyticsLabel}>Visible VAT</Text>
+                  <Text style={styles.analyticsLabel}>{vatTrackingEnabled ? 'Visible VAT' : 'VAT hidden'}</Text>
                 </View>
                 <View style={styles.analyticsCard}>
                   <Text style={styles.analyticsValue}>{analyticsSummary.reviewCount}</Text>
@@ -3700,6 +3813,7 @@ function CaptureReviewScreen({
 function DocumentSheet({
   document,
   ownerName,
+  vatTrackingEnabled,
   onClose,
   onMarkReviewed,
   onAddToClaim,
@@ -3709,6 +3823,7 @@ function DocumentSheet({
 }: {
   document: ExpenseDocument | null;
   ownerName: string;
+  vatTrackingEnabled: boolean;
   onClose: () => void;
   onMarkReviewed: () => void;
   onAddToClaim: () => void;
@@ -3760,6 +3875,7 @@ function DocumentSheet({
   const filteredCategoryOptions = categoryOptions.filter((option) =>
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
+  const effectiveTaxRate = vatTrackingEnabled ? selectedTaxRate : 'No VAT';
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'
@@ -3836,49 +3952,58 @@ function DocumentSheet({
           <View style={styles.taxEditor}>
             <View style={styles.taxEditorRow}>
               <TaxAmountField label="Total" value={totalInput} onChangeText={setTotalInput} />
-              <TaxAmountField label="Net" value={netInput} onChangeText={setNetInput} />
-              <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} />
+              {vatTrackingEnabled ? <TaxAmountField label="Net" value={netInput} onChangeText={setNetInput} /> : null}
+              {vatTrackingEnabled ? <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} /> : null}
             </View>
-            <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
-              <Text style={styles.taxDropdownLabel}>Tax rate</Text>
-              <View style={styles.taxDropdownValueWrap}>
-                <Text style={styles.taxDropdownValue}>{selectedTaxRate}</Text>
-                <Ionicons
-                  name={taxDropdownOpen ? 'chevron-up' : 'chevron-down'}
-                  size={18}
-                  color={colors.royalBlueDark}
-                />
+            {vatTrackingEnabled ? (
+              <>
+                <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
+                  <Text style={styles.taxDropdownLabel}>Tax rate</Text>
+                  <View style={styles.taxDropdownValueWrap}>
+                    <Text style={styles.taxDropdownValue}>{selectedTaxRate}</Text>
+                    <Ionicons
+                      name={taxDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={colors.royalBlueDark}
+                    />
+                  </View>
+                </Pressable>
+                {taxDropdownOpen ? (
+                  <View style={styles.taxDropdownMenu}>
+                    {TAX_RATE_OPTIONS.map((option) => (
+                      <Pressable
+                        key={option}
+                        style={[styles.taxDropdownOption, option === selectedTaxRate && styles.taxDropdownOptionActive]}
+                        onPress={() => {
+                          setSelectedTaxRate(option);
+                          setTaxDropdownOpen(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.taxDropdownOptionText,
+                            option === selectedTaxRate && styles.taxDropdownOptionTextActive,
+                          ]}
+                        >
+                          {option}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>VAT tracking</Text>
+                <Text style={styles.reviewFieldValue}>Gross total only</Text>
               </View>
-            </Pressable>
-            {taxDropdownOpen ? (
-              <View style={styles.taxDropdownMenu}>
-                {TAX_RATE_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option}
-                    style={[styles.taxDropdownOption, option === selectedTaxRate && styles.taxDropdownOptionActive]}
-                    onPress={() => {
-                      setSelectedTaxRate(option);
-                      setTaxDropdownOpen(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.taxDropdownOptionText,
-                        option === selectedTaxRate && styles.taxDropdownOptionTextActive,
-                      ]}
-                    >
-                      {option}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
+            )}
             <Pressable
               style={styles.taxSaveButton}
               onPress={() => {
                 const amount = parseMoneyInput(totalInput);
-                const netAmount = parseMoneyInput(netInput);
-                const vatAmount = parseMoneyInput(vatInput);
+                const netAmount = vatTrackingEnabled ? parseMoneyInput(netInput) : amount;
+                const vatAmount = vatTrackingEnabled ? parseMoneyInput(vatInput) : 0;
                 onUpdateReviewFields({
                   amount,
                   netAmount,
@@ -3887,7 +4012,7 @@ function DocumentSheet({
                   category: selectedCategory || document.category,
                   description: descriptionInput.trim(),
                   customer: customerInput.trim(),
-                  taxRateApplied: selectedTaxRate,
+                  taxRateApplied: effectiveTaxRate,
                 });
               }}
             >

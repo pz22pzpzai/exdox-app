@@ -93,11 +93,19 @@ export interface UserSettings {
   theme: 'system' | 'light' | 'dark';
 }
 
+export interface OrganisationSettings {
+  organisationId: number;
+  organisationName: string;
+  isVatRegistered: boolean;
+  defaultTaxRate: UkTaxRate;
+}
+
 export interface AppState {
   documents: ExpenseDocument[];
   claims: Claim[];
   vehicles: Vehicle[];
   settings: UserSettings;
+  organisationSettings: OrganisationSettings | null;
 }
 
 export interface AppErrorLog {
