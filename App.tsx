@@ -218,8 +218,8 @@ const applyExtractedDocumentDraft = (
   extracted: ExtractedDocumentDraft,
 ): ExpenseDocument => ({
   ...document,
-  title: extracted.supplier || document.title,
-  supplier: extracted.supplier,
+  title: extracted.supplier?.trim() ? extracted.supplier : document.title,
+  supplier: extracted.supplier?.trim() ? extracted.supplier : document.supplier,
   amount: resolveDocumentAmount({
     amount: extracted.amount,
     netAmount: extracted.netAmount,
@@ -345,6 +345,25 @@ const normalizeVatDisabledValues = ({
     taxAmount: 0,
     taxRateApplied: 'No VAT' as UkTaxRate,
   };
+};
+
+const isPlaceholderSupplierLabel = (value?: string | null) => {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return !normalized || normalized === 'merchant to review' || normalized === 'supplier to review';
+};
+
+const looksLikeGeneratedUploadTitle = (value?: string | null) => {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^[0-9_-]{10,}$/.test(normalized) ||
+    normalized.includes('screenshot') ||
+    normalized.includes('receipt-') ||
+    normalized.includes('invoice-')
+  );
 };
 
 const normalizeDocumentFileName = (fileName: string) =>
@@ -475,9 +494,18 @@ const mergeWorkspaceDocuments = (
       return document;
     }
 
+    const preferLocalSupplier =
+      isPlaceholderSupplierLabel(document.supplier) &&
+      !isPlaceholderSupplierLabel(mergedLocalDocument.supplier);
+    const preferLocalTitle =
+      (!document.title.trim() || looksLikeGeneratedUploadTitle(document.title)) &&
+      Boolean(mergedLocalDocument.title.trim());
+
     return {
       ...document,
       id: mergedLocalDocument.id,
+      title: preferLocalTitle ? mergedLocalDocument.title : document.title,
+      supplier: preferLocalSupplier ? mergedLocalDocument.supplier : document.supplier,
       category: mergedLocalDocument.category.trim() ? mergedLocalDocument.category : document.category,
       fileUri: mergedLocalDocument.fileUri ?? document.fileUri,
       source: mergedLocalDocument.source,
@@ -2294,12 +2322,16 @@ export default function App() {
           editingVehicleId={editingVehicleId}
           onClose={() => setSettingsPanelTarget(null)}
           onSaveOrganisationSettings={async (nextSettings) => {
-            const savedSettings = await saveOrganisationSettings(nextSettings);
             setAppState((current) => ({
               ...current,
-              organisationSettings: savedSettings,
+              organisationSettings: current.organisationSettings
+                ? {
+                    ...current.organisationSettings,
+                    ...nextSettings,
+                  }
+                : current.organisationSettings,
               documents: current.documents.map((document) =>
-                savedSettings.isVatRegistered
+                nextSettings.isVatRegistered
                   ? document
                   : {
                       ...document,
@@ -2307,9 +2339,32 @@ export default function App() {
                     },
               ),
             }));
-            if (authSession) {
-              await syncCloudWorkspace(authSession);
-            }
+            void (async () => {
+              try {
+                const savedSettings = await saveOrganisationSettings(nextSettings);
+                setAppState((current) => ({
+                  ...current,
+                  organisationSettings: savedSettings,
+                }));
+                if (authSession) {
+                  await syncCloudWorkspace(authSession);
+                }
+              } catch (error) {
+                void recordError('organisation settings save', error);
+                if (authSession) {
+                  try {
+                    const restoredSettings = await fetchOrganisationSettings();
+                    setAppState((current) => ({
+                      ...current,
+                      organisationSettings: restoredSettings,
+                    }));
+                    await syncCloudWorkspace(authSession);
+                  } catch (restoreError) {
+                    void recordError('organisation settings restore', restoreError);
+                  }
+                }
+              }
+            })();
           }}
           onExport={() => void handleTeamExport()}
           onChangeVehicleName={setVehicleNameInput}
@@ -2740,7 +2795,7 @@ function SettingsScreen({
         <View style={styles.profileAvatar}>
           <Ionicons name="person-outline" size={28} color={colors.nearBlack} />
         </View>
-        <View>
+        <View style={styles.profileCopy}>
           <Text style={styles.profileName}>{accountName}</Text>
           <Text style={styles.profileEmail}>{accountEmail}</Text>
           <Text style={styles.profileRole}>
@@ -4734,15 +4789,21 @@ const styles = StyleSheet.create({
   },
   profileRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 18,
     paddingHorizontal: 26,
-    paddingVertical: 18,
+    paddingTop: 18,
+    paddingBottom: 20,
     backgroundColor: colors.white,
     borderTopWidth: 1,
     borderTopColor: colors.band,
     borderBottomWidth: 1,
     borderBottomColor: colors.band,
+  },
+  profileCopy: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingTop: 2,
   },
   profileAvatar: {
     width: 82,
@@ -4754,23 +4815,26 @@ const styles = StyleSheet.create({
   },
   profileName: {
     fontSize: 24,
+    lineHeight: 30,
     fontWeight: '700',
     color: colors.nearBlack,
   },
   profileEmail: {
     marginTop: 6,
     fontSize: 16,
+    lineHeight: 22,
     color: colors.mutedText,
   },
   profileRole: {
     marginTop: 8,
     fontSize: 14,
+    lineHeight: 18,
     color: colors.royalBlueDark,
     fontWeight: '600',
   },
   settingsLink: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 18,
     paddingHorizontal: 26,
     paddingVertical: 22,
@@ -4778,7 +4842,9 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.band,
   },
   settingsLinkText: {
+    flex: 1,
     fontSize: 20,
+    lineHeight: 26,
     color: colors.nearBlack,
   },
   errorSheet: {
@@ -4867,23 +4933,26 @@ const styles = StyleSheet.create({
   settingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 26,
-    paddingVertical: 16,
+    paddingVertical: 18,
   },
   settingLabelWrap: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 18,
     flex: 1,
     paddingRight: 12,
   },
   settingLabel: {
     fontSize: 19,
+    lineHeight: 25,
     color: colors.nearBlack,
+    flexShrink: 1,
   },
   settingValue: {
     fontSize: 18,
+    lineHeight: 24,
     color: colors.nearBlack,
   },
   bottomBar: {
@@ -5666,11 +5735,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingHorizontal: 22,
     paddingTop: 20,
-    paddingBottom: 34,
-    maxHeight: '78%',
+    paddingBottom: 58,
+    maxHeight: '82%',
   },
   panelTitle: {
     fontSize: 22,
+    lineHeight: 28,
     fontWeight: '700',
     color: colors.nearBlack,
     marginBottom: 16,
@@ -5700,7 +5770,7 @@ const styles = StyleSheet.create({
   },
   panelMuted: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 24,
     color: colors.mutedText,
   },
   panelListRow: {
