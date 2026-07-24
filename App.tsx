@@ -403,6 +403,39 @@ const getDocumentFileNameCandidates = (document: Pick<ExpenseDocument, 'fileName
   return [...candidates];
 };
 
+const hasExactMatchingFileName = (
+  left: Pick<ExpenseDocument, 'fileName' | 'fileUri'>,
+  right: Pick<ExpenseDocument, 'fileName' | 'fileUri'>,
+) => {
+  const leftCandidates = getDocumentFileNameCandidates(left);
+  const rightCandidates = getDocumentFileNameCandidates(right);
+  return leftCandidates.some((candidate) => rightCandidates.includes(candidate));
+};
+
+const hasUsableSupplierName = (value: string | null | undefined) => {
+  const trimmed = value?.trim() ?? '';
+  return Boolean(trimmed) && !isPlaceholderSupplierLabel(trimmed) && !looksLikeGeneratedUploadTitle(trimmed);
+};
+
+const shouldPushLocalSupplierToCloud = (localDocument: ExpenseDocument, cloudDocument: ExpenseDocument) =>
+  hasUsableSupplierName(localDocument.supplier) &&
+  (!hasUsableSupplierName(cloudDocument.supplier) || isPlaceholderSupplierLabel(cloudDocument.supplier));
+
+const buildCloudReceiptSyncUpdates = (document: ExpenseDocument) => ({
+  supplier: hasUsableSupplierName(document.supplier) ? document.supplier : undefined,
+  date: document.date,
+  dueDate: document.dueDate,
+  invoiceNumber: document.invoiceNumber,
+  category: document.category,
+  description: document.description,
+  customer: document.customer,
+  amount: document.amount,
+  netAmount: document.netAmount,
+  vatAmount: document.vatAmount,
+  taxRateApplied: document.taxRateApplied,
+  status: document.status,
+});
+
 const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDocument: ExpenseDocument) => {
   if (localDocument.cloudReceiptId) {
     return false;
@@ -442,6 +475,10 @@ const isLikelyDuplicateReceiptMatch = (document: ExpenseDocument, candidate: Exp
 
   if (document.type !== candidate.type || document.workspaceContext !== candidate.workspaceContext) {
     return false;
+  }
+
+  if (hasExactMatchingFileName(document, candidate)) {
+    return true;
   }
 
   const amountMatches = Math.abs((document.amount ?? 0) - (candidate.amount ?? 0)) < 0.01;
@@ -1060,7 +1097,7 @@ export default function App() {
             }
 
             try {
-              const cloudDocuments = await fetchCloudReceipts(workspaceContext);
+              let cloudDocuments = await fetchCloudReceipts(workspaceContext);
               const matchingCloudDocument = cloudDocuments.find(
                 (candidate) =>
                   (latestLocalDocument.cloudReceiptId && candidate.cloudReceiptId === latestLocalDocument.cloudReceiptId) ||
@@ -1068,6 +1105,17 @@ export default function App() {
               );
               if (!matchingCloudDocument) {
                 continue;
+              }
+
+              if (
+                matchingCloudDocument.cloudReceiptId &&
+                shouldPushLocalSupplierToCloud(latestLocalDocument, matchingCloudDocument)
+              ) {
+                await updateCloudReceipt(
+                  matchingCloudDocument.cloudReceiptId,
+                  buildCloudReceiptSyncUpdates(latestLocalDocument),
+                );
+                cloudDocuments = await fetchCloudReceipts(workspaceContext);
               }
 
               cloudMatchFound = true;
@@ -1093,15 +1141,7 @@ export default function App() {
         return;
       }
       if (authSession && extracted.cloudReceiptId && nextDocument) {
-        await updateCloudReceipt(extracted.cloudReceiptId, {
-          category: nextDocument.category,
-          description: nextDocument.description,
-          customer: nextDocument.customer,
-          amount: nextDocument.amount,
-          netAmount: nextDocument.netAmount,
-          vatAmount: nextDocument.vatAmount,
-          taxRateApplied: nextDocument.taxRateApplied,
-        });
+        await updateCloudReceipt(extracted.cloudReceiptId, buildCloudReceiptSyncUpdates(nextDocument));
         await syncCloudWorkspace(authSession);
       }
       if (authSession && !extracted.cloudReceiptId) {
