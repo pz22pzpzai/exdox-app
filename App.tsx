@@ -436,6 +436,38 @@ const buildCloudReceiptSyncUpdates = (document: ExpenseDocument) => ({
   status: document.status,
 });
 
+const findLocalDocumentForCloudSync = (
+  localDocuments: ExpenseDocument[],
+  cloudDocument: ExpenseDocument,
+) =>
+  localDocuments.find((document) => document.cloudReceiptId === cloudDocument.cloudReceiptId)
+  ?? localDocuments.find((document) => isLikelyTimedOutUploadDuplicate(document, cloudDocument));
+
+const buildPendingCloudSupplierUpdates = (
+  localDocuments: ExpenseDocument[],
+  cloudDocuments: ExpenseDocument[],
+) => {
+  const updatesByReceiptId = new Map<number, ReturnType<typeof buildCloudReceiptSyncUpdates>>();
+
+  cloudDocuments.forEach((cloudDocument) => {
+    if (!cloudDocument.cloudReceiptId) {
+      return;
+    }
+
+    const localDocument = findLocalDocumentForCloudSync(localDocuments, cloudDocument);
+    if (!localDocument || !shouldPushLocalSupplierToCloud(localDocument, cloudDocument)) {
+      return;
+    }
+
+    updatesByReceiptId.set(cloudDocument.cloudReceiptId, buildCloudReceiptSyncUpdates(localDocument));
+  });
+
+  return [...updatesByReceiptId.entries()].map(([receiptId, updates]) => ({
+    receiptId,
+    updates,
+  }));
+};
+
 const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDocument: ExpenseDocument) => {
   if (localDocument.cloudReceiptId) {
     return false;
@@ -496,6 +528,25 @@ const isLikelyDuplicateReceiptMatch = (document: ExpenseDocument, candidate: Exp
   const candidateSupplier = normalizeDuplicateComparisonText(candidate.supplier || candidate.title);
   return Boolean(documentSupplier) && documentSupplier === candidateSupplier;
 };
+
+const findExistingExactFileNameDuplicate = (
+  documents: ExpenseDocument[],
+  input: {
+    fileName: string;
+    workspaceContext: WorkspaceContext;
+    type: DocumentKind;
+  },
+) =>
+  documents.find((document) =>
+    document.workspaceContext === input.workspaceContext &&
+    document.type === input.type &&
+    hasExactMatchingFileName(
+      {
+        fileName: input.fileName,
+      },
+      document,
+    ),
+  ) ?? null;
 
 const mergeWorkspaceDocuments = (
   currentDocuments: ExpenseDocument[],
@@ -804,6 +855,21 @@ export default function App() {
       }
 
       const currentDocuments = appState.documents;
+      const pendingCostSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, costDocuments);
+      const pendingSalesSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, salesDocuments);
+
+      if (pendingCostSupplierUpdates.length || pendingSalesSupplierUpdates.length) {
+        await Promise.all([
+          ...pendingCostSupplierUpdates.map(({ receiptId, updates }) => updateCloudReceipt(receiptId, updates)),
+          ...pendingSalesSupplierUpdates.map(({ receiptId, updates }) => updateCloudReceipt(receiptId, updates)),
+        ]);
+
+        [costDocuments, salesDocuments] = await Promise.all([
+          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('sales'),
+        ]);
+      }
+
       const mergedDocuments = [...costDocuments, ...salesDocuments].sort((left, right) =>
         right.createdAt.localeCompare(left.createdAt),
       );
@@ -1527,6 +1593,19 @@ export default function App() {
   }) => {
     setIsSaving(true);
     try {
+      const existingDuplicate = findExistingExactFileNameDuplicate(appState.documents, {
+        fileName,
+        workspaceContext,
+        type,
+      });
+      if (existingDuplicate) {
+        Alert.alert(
+          'Duplicate receipt',
+          `${fileName} already exists in this ${workspaceContext === 'sales' ? 'sales' : workspaceContext === 'vault' ? 'vault' : 'costs'} workspace and was not uploaded again.`,
+        );
+        return null;
+      }
+
       const nextDocument = await buildDraftDocument({
         fileName,
         source,
