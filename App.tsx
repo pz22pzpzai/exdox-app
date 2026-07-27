@@ -269,6 +269,7 @@ const markDuplicateUploadDraft = (
   return {
     ...extracted,
     notes: duplicateReceiptStatusMessage,
+    extractionOutcome: 'failed',
     needsReview: true,
   };
 };
@@ -3089,14 +3090,14 @@ const DocumentRow = memo(function DocumentRow({
   selected?: boolean;
 }) {
   const hasPreviewImage = canPreviewDocumentInline(document);
-  const isProcessing = document.extractionStatus === 'pending';
-  const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
   const isDuplicateReceipt = extractionLooksLikeDuplicateUpload(document);
+  const isProcessing = document.extractionStatus === 'pending' && !isDuplicateReceipt;
+  const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
   const extractionStatusText =
-    document.extractionStatus === 'pending'
-      ? 'Reading receipt...'
-      : isDuplicateReceipt
-        ? duplicateReceiptStatusMessage
+    isDuplicateReceipt
+      ? 'Error: Duplicate detected'
+      : document.extractionStatus === 'pending'
+        ? 'Reading receipt...'
       : isUnreadableReceipt
         ? 'Unable to read receipt, tap to enter manually or retry uploading receipt'
         : document.needsReview
