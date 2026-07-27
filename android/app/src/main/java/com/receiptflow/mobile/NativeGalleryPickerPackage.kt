@@ -1,4 +1,4 @@
-package com.receiptflow.mobile
+package uk.co.exdox.mobile
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

@@ -17,7 +17,7 @@
       }
     },
     "android": {
-      "package": "com.receiptflow.mobile",
+      "package": "uk.co.exdox.mobile",
       "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",

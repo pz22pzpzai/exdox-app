@@ -1,4 +1,4 @@
-package com.receiptflow.mobile
+package uk.co.exdox.mobile
 
 import android.app.Application
 import android.content.res.Configuration
