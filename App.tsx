@@ -58,7 +58,7 @@ import {
 } from './src/types';
 import { clearAuthSession, loadAuthSession, saveAuthSession } from './src/utils/authStorage';
 import { buildDraftDocument, extractionLooksUnreadable } from './src/utils/documents';
-import { prepareImportedImageForApp } from './src/utils/uploadAsset';
+import { prepareCombinedImageDocumentForApp, prepareImportedImageForApp } from './src/utils/uploadAsset';
 import {
   appendStoredDiagnosticLog,
   appendStoredErrorLog,
@@ -122,6 +122,8 @@ type NativeGalleryAsset = {
 const NativeGalleryPicker = NativeModules.NativeGalleryPicker as
   | { open: () => Promise<NativeGalleryAsset | null> }
   | undefined;
+
+type GallerySelectionMode = 'multiple_documents' | 'combined_document';
 
 const getWorkspaceContextForTab = (tab: MainTab): WorkspaceContext => (tab === 'sales' ? 'sales' : 'cost');
 const getCategoryOptions = (workspaceContext: WorkspaceContext) =>
@@ -1055,8 +1057,48 @@ export default function App() {
     });
   });
 
+  const prepareCombinedManualDocument = useEffectEvent(
+    async ({
+      assets,
+      workspaceContext,
+      paymentMethod,
+    }: {
+      assets: Array<{
+        uri: string;
+        fileName: string;
+      }>;
+      workspaceContext: WorkspaceContext;
+      paymentMethod: PaymentMethod;
+    }) => {
+      await recordDiagnostic('gallery', `Preparing combined document from ${assets.length} gallery images`);
+      const combined = await prepareCombinedImageDocumentForApp({
+        id: `combined-${Date.now()}`,
+        assets,
+        fileNameStem: captureType === 'invoice' ? 'combined-invoice' : 'combined-receipt',
+      });
+      const nextDocument = buildManualDraftDocument({
+        fileName: combined.fileName,
+        type: captureType,
+        uri: combined.uri,
+        source: 'gallery',
+        workspaceContext,
+        paymentMethod,
+      });
+      return {
+        ...nextDocument,
+        notes: `Combined from ${assets.length} gallery image${assets.length === 1 ? '' : 's'} and saved for manual review.`,
+      };
+    },
+  );
+
   const commitPreparedDocument = useEffectEvent(
-    async (document: ExpenseDocument, origin: 'camera' | 'gallery' | 'recovery') => {
+    async (
+      document: ExpenseDocument,
+      origin: 'camera' | 'gallery' | 'recovery',
+      options?: {
+        openReview?: boolean;
+      },
+    ) => {
       try {
         await recordDiagnostic(
           document.source,
@@ -1068,7 +1110,9 @@ export default function App() {
         }));
         setActiveTab(document.type === 'invoice' ? 'sales' : 'costs');
         setSelectedDocumentId(null);
-        setCaptureReviewDocumentId(document.id);
+        if (options?.openReview ?? true) {
+          setCaptureReviewDocumentId(document.id);
+        }
         setTimeout(() => {
           void processPreparedDocumentUpload({
             documentId: document.id,
@@ -1093,18 +1137,24 @@ export default function App() {
   );
 
   const schedulePreparedDocumentCommit = useEffectEvent(
-    (document: ExpenseDocument, origin: 'camera' | 'gallery' | 'recovery') => {
+    (
+      document: ExpenseDocument,
+      origin: 'camera' | 'gallery' | 'recovery',
+      options?: {
+        openReview?: boolean;
+      },
+    ) => {
       void recordDiagnostic(document.source, `Scheduling deferred commit from ${origin}`);
       if (origin === 'camera') {
         InteractionManager.runAfterInteractions(() => {
           void recordDiagnostic(document.source, `Deferred commit running after interactions from ${origin}`);
-          void commitPreparedDocument(document, origin);
+          void commitPreparedDocument(document, origin, options);
         });
         return;
       }
 
       void recordDiagnostic(document.source, `Immediate commit running for ${origin}`);
-      void commitPreparedDocument(document, origin);
+      void commitPreparedDocument(document, origin, options);
     },
   );
 
@@ -1524,6 +1574,73 @@ export default function App() {
     },
   );
 
+  const commitGalleryAssetsAsMultipleDocuments = useEffectEvent(
+    async (
+      assets: Array<{
+        uri?: string | null;
+        fileName?: string | null;
+        assetId?: string | null;
+      }>,
+      origin: 'gallery',
+    ) => {
+      const captureContext = getCurrentCaptureContext();
+      const nextDocuments = [];
+
+      for (const [index, asset] of assets.entries()) {
+        if (!asset.uri) {
+          continue;
+        }
+        const prepared = await prepareManualDocument({
+          source: 'gallery',
+          type: captureType,
+          uri: asset.uri,
+          fileName: asset.fileName ?? `${captureType}-${Date.now()}-${index + 1}.jpg`,
+          ...captureContext,
+        });
+        nextDocuments.push(prepared);
+      }
+
+      nextDocuments.forEach((document) => {
+        schedulePreparedDocumentCommit(document, origin, { openReview: false });
+      });
+
+      if (nextDocuments.length) {
+        setActiveTab(nextDocuments[0].type === 'invoice' ? 'sales' : 'costs');
+        setSelectedDocumentId(null);
+        setCaptureReviewDocumentId(null);
+      }
+    },
+  );
+
+  const promptForGallerySelectionMode = useEffectEvent(
+    (assetCount: number) =>
+      new Promise<GallerySelectionMode | null>((resolve) => {
+        Alert.alert(
+          'Submit as',
+          `You selected ${assetCount} images from the gallery.`,
+          [
+            {
+              text: 'Multiple documents',
+              onPress: () => resolve('multiple_documents'),
+            },
+            {
+              text: 'Combined document',
+              onPress: () => resolve('combined_document'),
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => resolve(null),
+            },
+          ],
+          {
+            cancelable: true,
+            onDismiss: () => resolve(null),
+          },
+        );
+      }),
+  );
+
   useEffect(() => {
     if (hasRecoveredPickerResultRef.current) {
       return;
@@ -1642,31 +1759,6 @@ export default function App() {
   };
 
   const openGalleryPicker = async () => {
-    if (String(Platform.OS) === 'android' && NativeGalleryPicker) {
-      try {
-        await recordDiagnostic('gallery', 'Launching native Android gallery picker');
-        const asset = await NativeGalleryPicker.open();
-        if (!asset) {
-          await recordDiagnostic('gallery', 'Native Android gallery selection canceled');
-          return;
-        }
-
-        await recordDiagnostic('gallery', `Native Android gallery returned ${asset.fileName}`);
-        await commitGalleryAsset(
-          {
-            uri: asset.uri,
-            fileName: asset.fileName,
-            assetId: asset.uri,
-          },
-          'gallery',
-        );
-      } catch (error) {
-        void recordError('native gallery picker', error);
-        Alert.alert('Import failed', error instanceof Error ? error.message : 'The selected image could not be imported.');
-      }
-      return;
-    }
-
     await recordDiagnostic('gallery', 'Requesting photo library permission');
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     await recordDiagnostic(
@@ -1701,7 +1793,7 @@ export default function App() {
     const pickerOptions: any = {
       mediaTypes: ['images'],
       allowsEditing: false,
-      allowsMultipleSelection: false,
+      allowsMultipleSelection: true,
       quality: 0.8,
       exif: false,
     };
@@ -1714,7 +1806,37 @@ export default function App() {
       );
 
       if (!result.canceled && result.assets?.length) {
-        await commitGalleryAsset(result.assets[0], 'gallery');
+        if (result.assets.length === 1) {
+          await commitGalleryAsset(result.assets[0], 'gallery');
+          return;
+        }
+
+        await recordDiagnostic('gallery', `Multiple gallery assets selected: ${result.assets.length}`);
+        awaitingGalleryResultRef.current = false;
+        const selectionMode = await promptForGallerySelectionMode(result.assets.length);
+        if (!selectionMode) {
+          await recordDiagnostic('gallery', 'Gallery submit mode prompt was canceled');
+          return;
+        }
+
+        if (selectionMode === 'multiple_documents') {
+          await commitGalleryAssetsAsMultipleDocuments(result.assets, 'gallery');
+          await recordDiagnostic('gallery', 'Gallery assets queued as multiple documents');
+          return;
+        }
+
+        const captureContext = getCurrentCaptureContext();
+        const combinedDocument = await prepareCombinedManualDocument({
+          assets: result.assets
+            .filter((asset) => Boolean(asset.uri))
+            .map((asset, index) => ({
+              uri: asset.uri!,
+              fileName: asset.fileName ?? `${captureType}-${Date.now()}-${index + 1}.jpg`,
+            })),
+          ...captureContext,
+        });
+        schedulePreparedDocumentCommit(combinedDocument, 'gallery');
+        await recordDiagnostic('gallery', 'Gallery assets queued as a combined document');
       } else if (!result.canceled) {
         await recordDiagnostic('gallery', 'Image picker returned without assets');
         Alert.alert('Import failed', 'No image was returned from the gallery picker.');
