@@ -149,6 +149,8 @@ export const prepareCombinedImageDocumentForApp = async ({
     uri,
     fileName,
     mimeType: 'application/pdf' as const,
+    previewImageUri: preparedImages[0]?.uri,
+    previewImageUris: preparedImages.map((image) => image.uri),
   };
 };
 

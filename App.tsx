@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState as RNAppState,
+  Dimensions,
   FlatList,
   Image,
   InteractionManager,
@@ -158,6 +159,8 @@ const buildManualDraftDocument = ({
   fileName,
   type,
   uri,
+  previewImageUri,
+  previewImageUris,
   source,
   workspaceContext,
   paymentMethod,
@@ -165,6 +168,8 @@ const buildManualDraftDocument = ({
   fileName: string;
   type: DocumentKind;
   uri?: string;
+  previewImageUri?: string;
+  previewImageUris?: string[];
   source: ExpenseDocument['source'];
   workspaceContext: WorkspaceContext;
   paymentMethod: PaymentMethod;
@@ -199,6 +204,8 @@ const buildManualDraftDocument = ({
     tags: [type, 'draft'],
     fileUri: uri,
     fileName,
+    previewImageUri,
+    previewImageUris,
     source,
     extractionStatus: 'pending',
     extractionSource: 'backend_proxy',
@@ -253,6 +260,35 @@ const applyExtractedDocumentDraft = (
   paymentMethod: extracted.paymentMethod ?? document.paymentMethod,
 });
 
+const getDocumentPreviewUris = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri' | 'previewImageUri' | 'previewImageUris'>) => {
+  const previewUris = Array.isArray(document.previewImageUris)
+    ? document.previewImageUris.filter((value): value is string => Boolean(value))
+    : [];
+
+  if (previewUris.length) {
+    return previewUris;
+  }
+
+  if (document.previewImageUri) {
+    return [document.previewImageUri];
+  }
+
+  if (
+    document.fileUri &&
+    !pdfDocumentPattern.test(document.fileName) &&
+    !pdfDocumentPattern.test(document.fileUri) &&
+    (previewableImagePattern.test(document.fileName) || previewableImagePattern.test(document.fileUri))
+  ) {
+    return [document.fileUri];
+  }
+
+  return [];
+};
+
+const getPrimaryDocumentPreviewUri = (
+  document: Pick<ExpenseDocument, 'fileName' | 'fileUri' | 'previewImageUri' | 'previewImageUris'>,
+) => getDocumentPreviewUris(document)[0];
+
 const markDuplicateUploadDraft = (
   currentDocument: ExpenseDocument | undefined,
   extracted: ExtractedDocumentDraft,
@@ -276,13 +312,9 @@ const markDuplicateUploadDraft = (
   };
 };
 
-const canPreviewDocumentInline = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) =>
-  Boolean(document.fileUri) &&
-  !pdfDocumentPattern.test(document.fileName) &&
-  !pdfDocumentPattern.test(document.fileUri ?? '') &&
-  (previewableImagePattern.test(document.fileName) ||
-    previewableImagePattern.test(document.fileUri ?? '') ||
-    Boolean(document.fileName));
+const canPreviewDocumentInline = (
+  document: Pick<ExpenseDocument, 'fileName' | 'fileUri' | 'previewImageUri' | 'previewImageUris'>,
+) => Boolean(getPrimaryDocumentPreviewUri(document));
 
 const canHydrateDocumentPreview = (document: Pick<ExpenseDocument, 'fileName'>) =>
   !pdfDocumentPattern.test(document.fileName) && Boolean(document.fileName);
@@ -599,6 +631,8 @@ const mergeWorkspaceDocuments = (
       supplier: preferLocalSupplier ? mergedLocalDocument.supplier : document.supplier,
       category: mergedLocalDocument.category.trim() ? mergedLocalDocument.category : document.category,
       fileUri: mergedLocalDocument.fileUri ?? document.fileUri,
+      previewImageUri: mergedLocalDocument.previewImageUri ?? document.previewImageUri,
+      previewImageUris: mergedLocalDocument.previewImageUris ?? document.previewImageUris,
       source: mergedLocalDocument.source,
       createdAt: mergedLocalDocument.createdAt,
       updatedAt: mergedLocalDocument.updatedAt ?? document.updatedAt,
@@ -661,16 +695,16 @@ const buildInboundEmailAddress = (organisationName: string, organisationId: numb
 };
 
 const DocumentThumbnail = memo(function DocumentThumbnail({
-  fileUri,
+  previewUri,
   hasPreviewImage,
 }: {
-  fileUri?: string;
+  previewUri?: string;
   hasPreviewImage: boolean;
 }) {
-  if (hasPreviewImage && fileUri) {
+  if (hasPreviewImage && previewUri) {
     return (
       <Image
-        source={{ uri: fileUri }}
+        source={{ uri: previewUri }}
         fadeDuration={0}
         resizeMethod="resize"
         resizeMode="cover"
@@ -685,33 +719,68 @@ const DocumentThumbnail = memo(function DocumentThumbnail({
     </View>
   );
 }, (previousProps, nextProps) =>
-  previousProps.fileUri === nextProps.fileUri && previousProps.hasPreviewImage === nextProps.hasPreviewImage,
+  previousProps.previewUri === nextProps.previewUri && previousProps.hasPreviewImage === nextProps.hasPreviewImage,
 );
 
-const DocumentSheetPreviewImage = memo(function DocumentSheetPreviewImage({
-  fileUri,
+const DocumentPreviewCarousel = memo(function DocumentPreviewCarousel({
+  previewUris,
   fullScreen = false,
 }: {
-  fileUri?: string;
+  previewUris: string[];
   fullScreen?: boolean;
 }) {
-  const source = useMemo(() => (fileUri ? { uri: fileUri } : null), [fileUri]);
+  const viewportWidth = Math.max(Dimensions.get('window').width - (fullScreen ? 0 : 48), 1);
+  const imageHeight = fullScreen ? '88%' : 180;
 
-  if (!source) {
+  if (!previewUris.length) {
     return null;
   }
 
+  if (previewUris.length === 1) {
+    return (
+      <Image
+        source={{ uri: previewUris[0] }}
+        fadeDuration={0}
+        resizeMethod="resize"
+        resizeMode="contain"
+        style={fullScreen ? styles.previewFullscreenImage : styles.documentSheetPreview}
+      />
+    );
+  }
+
   return (
-    <Image
-      source={source}
-      fadeDuration={0}
-      resizeMethod="resize"
-      resizeMode="contain"
-      style={fullScreen ? styles.previewFullscreenImage : styles.documentSheetPreview}
-    />
+    <ScrollView
+      horizontal
+      pagingEnabled
+      showsHorizontalScrollIndicator={false}
+      bounces={false}
+      style={fullScreen ? styles.previewCarouselFullScreen : styles.previewCarousel}
+    >
+      {previewUris.map((previewUri, index) => (
+        <View
+          key={`${previewUri}-${index}`}
+          style={[
+            styles.previewCarouselPage,
+            {
+              width: viewportWidth,
+              height: imageHeight,
+            },
+          ]}
+        >
+          <Image
+            source={{ uri: previewUri }}
+            fadeDuration={0}
+            resizeMethod="resize"
+            resizeMode="contain"
+            style={fullScreen ? styles.previewFullscreenImage : styles.documentSheetPreview}
+          />
+        </View>
+      ))}
+    </ScrollView>
   );
 }, (previousProps, nextProps) =>
-  previousProps.fileUri === nextProps.fileUri && previousProps.fullScreen === nextProps.fullScreen,
+  previousProps.previewUris.join('|') === nextProps.previewUris.join('|') &&
+  previousProps.fullScreen === nextProps.fullScreen,
 );
 
 export default function App() {
@@ -1051,6 +1120,8 @@ export default function App() {
       fileName: prepared.fileName,
       type,
       uri: prepared.uri,
+      previewImageUri: prepared.uri,
+      previewImageUris: [prepared.uri],
       source,
       workspaceContext,
       paymentMethod,
@@ -1074,12 +1145,16 @@ export default function App() {
       const combined = await prepareCombinedImageDocumentForApp({
         id: `combined-${Date.now()}`,
         assets,
-        fileNameStem: captureType === 'invoice' ? 'combined-invoice' : 'combined-receipt',
+        fileNameStem:
+          assets[0]?.fileName?.replace(/\.[^/.]+$/, '') ||
+          (captureType === 'invoice' ? 'invoice' : 'receipt'),
       });
       const nextDocument = buildManualDraftDocument({
         fileName: combined.fileName,
         type: captureType,
         uri: combined.uri,
+        previewImageUri: combined.previewImageUri,
+        previewImageUris: combined.previewImageUris,
         source: 'gallery',
         workspaceContext,
         paymentMethod,
@@ -1865,10 +1940,10 @@ export default function App() {
     await openGalleryPicker();
   };
 
-  const handlePickFile = async () => {
+  const handlePickPdf = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       multiple: false,
-      type: ['application/pdf', 'image/*'],
+      type: 'application/pdf',
       copyToCacheDirectory: true,
     });
 
@@ -1887,9 +1962,9 @@ export default function App() {
         });
       }
     } catch (error) {
-      void recordError('handlePickFile', error);
-      console.error('handlePickFile failed', error);
-      Alert.alert('Import failed', 'The selected file could not be imported.');
+      void recordError('handlePickPdf', error);
+      console.error('handlePickPdf failed', error);
+      Alert.alert('Import failed', 'The selected PDF could not be imported.');
     }
   };
 
@@ -2382,7 +2457,7 @@ export default function App() {
           onSelectType={setCaptureType}
           onUseCamera={handleUseCamera}
           onUseGallery={handlePickImage}
-          onUseFiles={handlePickFile}
+          onUsePdf={handlePickPdf}
         />
 
         <MoreSheet
@@ -3212,6 +3287,7 @@ const DocumentRow = memo(function DocumentRow({
   selected?: boolean;
 }) {
   const hasPreviewImage = canPreviewDocumentInline(document);
+  const previewUri = getPrimaryDocumentPreviewUri(document);
   const isDuplicateReceipt = extractionLooksLikeDuplicateUpload(document);
   const isProcessing = document.extractionStatus === 'pending' && !isDuplicateReceipt;
   const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
@@ -3239,7 +3315,7 @@ const DocumentRow = memo(function DocumentRow({
             {selected ? <Ionicons name="checkmark" size={14} color={colors.white} /> : null}
           </View>
         ) : null}
-        <DocumentThumbnail fileUri={document.fileUri} hasPreviewImage={hasPreviewImage} />
+        <DocumentThumbnail previewUri={previewUri} hasPreviewImage={hasPreviewImage} />
         <View style={styles.documentText}>
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
             {document.title}
@@ -3266,6 +3342,9 @@ const DocumentRow = memo(function DocumentRow({
   previousProps.document.notes === nextProps.document.notes &&
   previousProps.document.updatedAt === nextProps.document.updatedAt &&
   previousProps.document.fileUri === nextProps.document.fileUri &&
+  previousProps.document.previewImageUri === nextProps.document.previewImageUri &&
+  (previousProps.document.previewImageUris?.join('|') ?? '') ===
+    (nextProps.document.previewImageUris?.join('|') ?? '') &&
   previousProps.selectionMode === nextProps.selectionMode &&
   previousProps.selected === nextProps.selected,
 );
@@ -4166,8 +4245,8 @@ function DocumentSheet({
     return null;
   }
 
-  const hasPreviewImage =
-    canPreviewDocumentInline(document);
+  const previewUris = getDocumentPreviewUris(document);
+  const hasPreviewImage = previewUris.length > 0;
   const categoryOptions = getCategoryOptions(document.workspaceContext);
   const filteredCategoryOptions = categoryOptions.filter((option) =>
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
@@ -4203,8 +4282,10 @@ function DocumentSheet({
                     });
                   }}
                 >
-                  <DocumentSheetPreviewImage fileUri={document.fileUri} />
-                  <Text style={styles.documentSheetPreviewHint}>Tap to view full image</Text>
+                  <DocumentPreviewCarousel previewUris={previewUris} />
+                  <Text style={styles.documentSheetPreviewHint}>
+                    {previewUris.length > 1 ? `Swipe to view ${previewUris.length} images, or tap to open full screen` : 'Tap to view full image'}
+                  </Text>
                 </Pressable>
               ) : null}
           <Text style={styles.documentSheetTitle}>{document.title}</Text>
@@ -4383,7 +4464,7 @@ function DocumentSheet({
             <Ionicons name="close" size={28} color={colors.white} />
           </Pressable>
           {hasPreviewImage ? (
-            <DocumentSheetPreviewImage fileUri={document.fileUri} fullScreen />
+            <DocumentPreviewCarousel previewUris={previewUris} fullScreen />
           ) : null}
         </View>
       </Modal>
@@ -4424,7 +4505,7 @@ function CaptureModal({
   onSelectType,
   onUseCamera,
   onUseGallery,
-  onUseFiles,
+  onUsePdf,
 }: {
   captureType: DocumentKind;
   activeTab: MainTab;
@@ -4435,7 +4516,7 @@ function CaptureModal({
   onSelectType: (type: DocumentKind) => void;
   onUseCamera: () => void;
   onUseGallery: () => void;
-  onUseFiles: () => void;
+  onUsePdf: () => void;
 }) {
   const availableTypes =
     activeTab === 'sales'
@@ -4470,9 +4551,9 @@ function CaptureModal({
             <Ionicons name="image-outline" size={24} color={colors.royalBlue} />
             <Text style={styles.captureRowText}>Import from gallery</Text>
           </Pressable>
-          <Pressable style={styles.captureRow} onPress={onUseFiles} disabled={isSaving}>
+          <Pressable style={styles.captureRow} onPress={onUsePdf} disabled={isSaving}>
             <Ionicons name="document-outline" size={24} color={colors.royalBlue} />
-            <Text style={styles.captureRowText}>Import a file</Text>
+            <Text style={styles.captureRowText}>Select PDF</Text>
           </Pressable>
           {isSaving ? <ActivityIndicator color={colors.royalBlue} style={styles.captureLoader} /> : null}
         </View>
@@ -5473,6 +5554,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.band,
     overflow: 'hidden',
   },
+  previewCarousel: {
+    width: '100%',
+  },
+  previewCarouselFullScreen: {
+    width: '100%',
+    height: '88%',
+  },
+  previewCarouselPage: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   documentSheetPreviewHint: {
     marginTop: 8,
     fontSize: 13,
@@ -5720,7 +5812,7 @@ const styles = StyleSheet.create({
   },
   previewFullscreenImage: {
     width: '100%',
-    height: '88%',
+    height: '100%',
   },
   sheetActionButton: {
     paddingVertical: 15,

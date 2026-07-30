@@ -39,6 +39,8 @@ export interface ExpenseDocument {
   tags: string[];
   fileUri?: string;
   fileName: string;
+  previewImageUri?: string;
+  previewImageUris?: string[];
   source: 'camera' | 'gallery' | 'files' | 'seeded';
   claimId?: string;
   cloudReceiptId?: number;
