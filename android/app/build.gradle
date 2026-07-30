@@ -132,13 +132,14 @@ android {
     }
     buildTypes {
         debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
             signingConfig signingConfigs.debug
         }
         release {
-            if (!hasReleaseSigning) {
-                throw new GradleException("Release signing is not configured. Set EXDOX_UPLOAD_STORE_FILE, EXDOX_UPLOAD_STORE_PASSWORD, EXDOX_UPLOAD_KEY_ALIAS, and EXDOX_UPLOAD_KEY_PASSWORD before building a release bundle.")
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
             }
-            signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -155,6 +156,17 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    def releaseTaskRequested = graph.allTasks.any { task ->
+        def name = task.name.toLowerCase()
+        name.contains("release") && (name.contains("assemble") || name.contains("bundle") || name.contains("package"))
+    }
+
+    if (releaseTaskRequested && !hasReleaseSigning) {
+        throw new GradleException("Release signing is not configured. Set EXDOX_UPLOAD_STORE_FILE, EXDOX_UPLOAD_STORE_PASSWORD, EXDOX_UPLOAD_KEY_ALIAS, and EXDOX_UPLOAD_KEY_PASSWORD before building a release bundle.")
     }
 }
 
