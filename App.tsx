@@ -73,6 +73,7 @@ import {
 
 type MainTab = 'costs' | 'sales' | 'claims' | 'more';
 type MoreSheetTarget = 'menu' | 'capture_actions';
+type CameraCaptureMode = 'single' | 'multiple' | 'combine';
 type SettingsPanelTarget =
   | 'business_admin'
   | 'logins'
@@ -1131,6 +1132,8 @@ export default function App() {
   const prepareCombinedManualDocument = useEffectEvent(
     async ({
       assets,
+      type = captureType,
+      source = 'gallery',
       workspaceContext,
       paymentMethod,
     }: {
@@ -1138,30 +1141,32 @@ export default function App() {
         uri: string;
         fileName: string;
       }>;
+      type?: DocumentKind;
+      source?: 'camera' | 'gallery';
       workspaceContext: WorkspaceContext;
       paymentMethod: PaymentMethod;
     }) => {
-      await recordDiagnostic('gallery', `Preparing combined document from ${assets.length} gallery images`);
+      await recordDiagnostic(source, `Preparing combined document from ${assets.length} ${source} images`);
       const combined = await prepareCombinedImageDocumentForApp({
         id: `combined-${Date.now()}`,
         assets,
         fileNameStem:
           assets[0]?.fileName?.replace(/\.[^/.]+$/, '') ||
-          (captureType === 'invoice' ? 'invoice' : 'receipt'),
+          (type === 'invoice' ? 'invoice' : 'receipt'),
       });
       const nextDocument = buildManualDraftDocument({
         fileName: combined.fileName,
-        type: captureType,
+        type,
         uri: combined.uri,
         previewImageUri: combined.previewImageUri,
         previewImageUris: combined.previewImageUris,
-        source: 'gallery',
+        source,
         workspaceContext,
         paymentMethod,
       });
       return {
         ...nextDocument,
-        notes: `Combined from ${assets.length} gallery image${assets.length === 1 ? '' : 's'} and saved for manual review.`,
+        notes: `Combined from ${assets.length} ${source} image${assets.length === 1 ? '' : 's'} and saved for manual review.`,
       };
     },
   );
@@ -1606,6 +1611,14 @@ export default function App() {
 
   const getCurrentCaptureContext = () => {
     const workspaceContext = getWorkspaceContextForTab(activeTab);
+    return {
+      workspaceContext,
+      paymentMethod: getDefaultPaymentMethod(workspaceContext, Boolean(isAdmin)),
+    };
+  };
+
+  const getCaptureContextForType = (type: DocumentKind) => {
+    const workspaceContext: WorkspaceContext = type === 'invoice' ? 'sales' : 'cost';
     return {
       workspaceContext,
       paymentMethod: getDefaultPaymentMethod(workspaceContext, Boolean(isAdmin)),
@@ -2696,18 +2709,28 @@ export default function App() {
           type={captureType}
           lowResolution={appState.settings.lowResolution}
           onClose={() => setCameraVisible(false)}
+          onSelectType={(nextType) => {
+            setCaptureType(nextType);
+            setActiveTab(nextType === 'invoice' ? 'sales' : 'costs');
+          }}
           onUseGallery={() => {
+            setCameraVisible(false);
             void handlePickImage();
           }}
-          onCapture={async (uri) => {
+          onUsePdf={() => {
+            setCameraVisible(false);
+            void handlePickPdf();
+          }}
+          onCaptureSingle={async (uri) => {
+            const currentType = captureType;
             setCameraVisible(false);
             try {
               const nextDocument = await prepareManualDocument({
                 source: 'camera',
-                type: captureType,
+                type: currentType,
                 uri,
-                fileName: `${captureType}-${Date.now()}.jpg`,
-                ...getCurrentCaptureContext(),
+                fileName: `${currentType}-${Date.now()}.jpg`,
+                ...getCaptureContextForType(currentType),
               });
               schedulePreparedDocumentCommit(nextDocument, 'camera');
               void recordDiagnostic('camera', 'Document scheduled for deferred state commit');
@@ -2719,6 +2742,51 @@ export default function App() {
                 'The receipt photo could not be saved. Please try again or import from gallery.',
               );
               setSelectedDocumentId(null);
+            }
+          }}
+          onCaptureMultiple={async (uri) => {
+            const currentType = captureType;
+            try {
+              const nextDocument = await prepareManualDocument({
+                source: 'camera',
+                type: currentType,
+                uri,
+                fileName: `${currentType}-${Date.now()}.jpg`,
+                ...getCaptureContextForType(currentType),
+              });
+              schedulePreparedDocumentCommit(nextDocument, 'camera', { openReview: false });
+              void recordDiagnostic('camera', 'Multi-photo document scheduled for deferred state commit');
+            } catch (error) {
+              void recordError('camera multi draft save', error);
+              console.error('camera multi draft save failed', error);
+              Alert.alert(
+                'Import failed',
+                'The receipt photo could not be saved. Please try again or import from gallery.',
+              );
+            }
+          }}
+          onCaptureCombined={async (assets) => {
+            const currentType = captureType;
+            setCameraVisible(false);
+            try {
+              const combinedDocument = await prepareCombinedManualDocument({
+                type: currentType,
+                source: 'camera',
+                assets: assets.map((asset, index) => ({
+                  uri: asset.uri,
+                  fileName: `${currentType}-${Date.now()}-${index + 1}.jpg`,
+                })),
+                ...getCaptureContextForType(currentType),
+              });
+              schedulePreparedDocumentCommit(combinedDocument, 'camera');
+              void recordDiagnostic('camera', 'Combined camera document scheduled for deferred state commit');
+            } catch (error) {
+              void recordError('camera combined draft save', error);
+              console.error('camera combined draft save failed', error);
+              Alert.alert(
+                'Import failed',
+                'The combined receipt could not be saved. Please try again or import from gallery.',
+              );
             }
           }}
         />
@@ -4567,15 +4635,23 @@ function CameraCapture({
   type,
   lowResolution,
   onClose,
+  onSelectType,
   onUseGallery,
-  onCapture,
+  onUsePdf,
+  onCaptureSingle,
+  onCaptureMultiple,
+  onCaptureCombined,
 }: {
   visible: boolean;
   type: DocumentKind;
   lowResolution: boolean;
   onClose: () => void;
+  onSelectType: (type: DocumentKind) => void;
   onUseGallery: () => void;
-  onCapture: (uri: string) => Promise<void>;
+  onUsePdf: () => void;
+  onCaptureSingle: (uri: string) => Promise<void>;
+  onCaptureMultiple: (uri: string) => Promise<void>;
+  onCaptureCombined: (assets: Array<{ uri: string }>) => Promise<void>;
 }) {
   if (!visible) {
     return null;
@@ -4586,8 +4662,12 @@ function CameraCapture({
       type={type}
       lowResolution={lowResolution}
       onClose={onClose}
+      onSelectType={onSelectType}
       onUseGallery={onUseGallery}
-      onCapture={onCapture}
+      onUsePdf={onUsePdf}
+      onCaptureSingle={onCaptureSingle}
+      onCaptureMultiple={onCaptureMultiple}
+      onCaptureCombined={onCaptureCombined}
     />
   );
 }
@@ -4596,18 +4676,77 @@ function CameraSheet({
   type,
   lowResolution,
   onClose,
+  onSelectType,
   onUseGallery,
-  onCapture,
+  onUsePdf,
+  onCaptureSingle,
+  onCaptureMultiple,
+  onCaptureCombined,
 }: {
   type: DocumentKind;
   lowResolution: boolean;
   onClose: () => void;
+  onSelectType: (type: DocumentKind) => void;
   onUseGallery: () => void;
-  onCapture: (uri: string) => Promise<void>;
+  onUsePdf: () => void;
+  onCaptureSingle: (uri: string) => Promise<void>;
+  onCaptureMultiple: (uri: string) => Promise<void>;
+  onCaptureCombined: (assets: Array<{ uri: string }>) => Promise<void>;
 }) {
   const cameraRef = useRef<CameraView | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [mode, setMode] = useState<CameraCaptureMode>('single');
+  const [combinedAssets, setCombinedAssets] = useState<Array<{ uri: string }>>([]);
+  const isCombining = mode === 'combine' && combinedAssets.length > 0;
+  const hintText =
+    mode === 'multiple'
+      ? 'Capture multiple receipts'
+      : mode === 'combine'
+        ? isCombining
+          ? `${combinedAssets.length} image${combinedAssets.length === 1 ? '' : 's'} ready to combine`
+          : 'Capture pages for one receipt'
+        : 'One receipt or bill';
+
+  const capturePhoto = async () => {
+    const camera = cameraRef.current;
+    if (!camera) {
+      Alert.alert('Camera not ready', 'Please wait a moment and try taking the photo again.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const result = await camera.takePictureAsync({
+        quality: lowResolution ? 0.6 : 0.8,
+        skipProcessing: false,
+      });
+
+      if (!result?.uri) {
+        throw new Error('Camera capture returned no file URI.');
+      }
+
+      if (mode === 'multiple') {
+        await onCaptureMultiple(result.uri);
+        return;
+      }
+
+      if (mode === 'combine') {
+        setCombinedAssets((current) => [...current, { uri: result.uri }]);
+        return;
+      }
+
+      await onCaptureSingle(result.uri);
+    } catch (error) {
+      console.error('camera capture failed', error);
+      Alert.alert(
+        'Camera failed',
+        'The receipt photo could not be captured. Please try again or import from gallery.',
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <Modal animationType="slide" visible onRequestClose={onClose}>
@@ -4627,58 +4766,67 @@ function CameraSheet({
             </Pressable>
           </View>
           <View style={styles.cameraHintWrap}>
-            <Text style={styles.cameraText}>One receipt or bill</Text>
+            <Text style={styles.cameraText}>{hintText}</Text>
           </View>
           <View style={styles.cameraBottomPanel}>
             <View style={styles.cameraModeRow}>
-              <Text style={[styles.cameraModeText, styles.cameraModeTextActive]}>Single</Text>
-              <Text style={styles.cameraModeText}>Multiple</Text>
-              <Text style={styles.cameraModeText}>Combine</Text>
+              {(['single', 'multiple', 'combine'] as const).map((option) => (
+                <Pressable
+                  key={option}
+                  style={styles.cameraModeButton}
+                  onPress={() => {
+                    setMode(option);
+                    if (option !== 'combine') {
+                      setCombinedAssets([]);
+                    }
+                  }}
+                >
+                  <Text style={[styles.cameraModeText, mode === option && styles.cameraModeTextActive]}>
+                    {option === 'single' ? 'Single' : option === 'multiple' ? 'Multiple' : 'Combine'}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
             <View style={styles.cameraActions}>
               <Pressable style={styles.cameraGalleryButton} onPress={onUseGallery}>
                 <Ionicons name="image-outline" size={30} color={colors.white} />
               </Pressable>
+              <Pressable style={styles.cameraGalleryButton} onPress={onUsePdf}>
+                <Ionicons name="document-outline" size={28} color={colors.white} />
+              </Pressable>
               <Pressable
                 style={[styles.cameraShutter, (!isCameraReady || isProcessing) && styles.cameraShutterDisabled]}
                 disabled={!isCameraReady || isProcessing}
-                onPress={async () => {
-                  const camera = cameraRef.current;
-                  if (!camera) {
-                    Alert.alert('Camera not ready', 'Please wait a moment and try taking the photo again.');
-                    return;
-                  }
-
-                  setIsProcessing(true);
-                  try {
-                    const result = await camera.takePictureAsync({
-                      quality: lowResolution ? 0.6 : 0.8,
-                      skipProcessing: false,
-                    });
-
-                    if (!result?.uri) {
-                      throw new Error('Camera capture returned no file URI.');
-                    }
-
-                    await onCapture(result.uri);
-                  } catch (error) {
-                    console.error('camera capture failed', error);
-                    Alert.alert(
-                      'Camera failed',
-                      'The receipt photo could not be captured. Please try again or import from gallery.',
-                    );
-                  } finally {
-                    setIsProcessing(false);
-                  }
-                }}
+                onPress={capturePhoto}
               >
                 <View style={styles.cameraShutterInner} />
               </Pressable>
-              <View style={styles.cameraTypeButton}>
+              <Pressable
+                style={styles.cameraTypeButton}
+                onPress={() => onSelectType(type === 'invoice' ? 'receipt' : 'invoice')}
+              >
                 <Text style={styles.cameraTypeText}>{type === 'invoice' ? 'Sales' : 'Costs'}</Text>
                 <Ionicons name="chevron-down" size={18} color={colors.white} />
-              </View>
+              </Pressable>
             </View>
+            {mode === 'combine' ? (
+              <View style={styles.cameraCombineActions}>
+                <Pressable
+                  style={[styles.cameraCombineButton, !combinedAssets.length && styles.cameraCombineButtonDisabled]}
+                  disabled={!combinedAssets.length || isProcessing}
+                  onPress={() => void onCaptureCombined(combinedAssets)}
+                >
+                  <Text style={styles.cameraCombineButtonText}>
+                    {combinedAssets.length ? `Done (${combinedAssets.length})` : 'Done'}
+                  </Text>
+                </Pressable>
+                {combinedAssets.length ? (
+                  <Pressable style={styles.cameraCombineClearButton} onPress={() => setCombinedAssets([])}>
+                    <Text style={styles.cameraCombineClearText}>Clear</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
       </View>
@@ -5928,13 +6076,20 @@ const styles = StyleSheet.create({
   cameraBottomPanel: {
     backgroundColor: '#000000',
     paddingTop: 10,
-    paddingBottom: 22,
+    paddingBottom: Platform.OS === 'android' ? 42 : 28,
   },
   cameraModeRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 28,
-    paddingBottom: 18,
+    gap: 18,
+    paddingBottom: 14,
+  },
+  cameraModeButton: {
+    minWidth: 88,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
   },
   cameraModeText: {
     fontSize: 18,
@@ -5947,10 +6102,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 28,
+    paddingHorizontal: 20,
+    gap: 8,
   },
   cameraGalleryButton: {
-    width: 56,
+    width: 52,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5978,10 +6134,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minWidth: 78,
+    minWidth: 86,
+    minHeight: 56,
   },
   cameraTypeText: {
     fontSize: 18,
+    color: colors.white,
+  },
+  cameraCombineActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 14,
+    paddingTop: 14,
+  },
+  cameraCombineButton: {
+    minWidth: 132,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    backgroundColor: colors.white,
+  },
+  cameraCombineButtonDisabled: {
+    opacity: 0.45,
+  },
+  cameraCombineButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  cameraCombineClearButton: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraCombineClearText: {
+    fontSize: 16,
+    fontWeight: '700',
     color: colors.white,
   },
   shellDark: {
