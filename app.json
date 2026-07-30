@@ -9,7 +9,7 @@
     "scheme": "exdox",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.receiptflow.mobile",
+      "bundleIdentifier": "uk.co.exdox.mobile",
       "infoPlist": {
         "NSCameraUsageDescription": "Use the camera to capture receipts and invoices.",
         "NSPhotoLibraryUsageDescription": "Use the photo library to import receipt and invoice images.",

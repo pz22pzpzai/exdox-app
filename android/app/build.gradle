@@ -71,6 +71,7 @@ def releaseStoreFile = findProperty("EXDOX_UPLOAD_STORE_FILE") ?: System.getenv(
 def releaseStorePassword = findProperty("EXDOX_UPLOAD_STORE_PASSWORD") ?: System.getenv("EXDOX_UPLOAD_STORE_PASSWORD")
 def releaseKeyAlias = findProperty("EXDOX_UPLOAD_KEY_ALIAS") ?: System.getenv("EXDOX_UPLOAD_KEY_ALIAS")
 def releaseKeyPassword = findProperty("EXDOX_UPLOAD_KEY_PASSWORD") ?: System.getenv("EXDOX_UPLOAD_KEY_PASSWORD")
+def exdoxArm64Only = (findProperty("exdoxArm64Only") ?: System.getenv("EXDOX_ARM64_ONLY") ?: "false").toBoolean()
 def hasReleaseSigning = [
     releaseStoreFile,
     releaseStorePassword,
@@ -104,6 +105,12 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+
+        if (exdoxArm64Only) {
+            ndk {
+                abiFilters "arm64-v8a"
+            }
+        }
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -197,5 +204,35 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+def reactEntryPointPath = "${buildDir}/generated/autolinking/src/main/java/com/facebook/react/ReactNativeApplicationEntryPoint.java"
+def fixReactNativeEntryPointPackage = {
+    def entryPointFile = file(reactEntryPointPath)
+    if (!entryPointFile.exists()) {
+        return
+    }
+
+    def currentText = entryPointFile.getText("UTF-8")
+    def fixedText = currentText.replace("com.receiptflow.mobile.BuildConfig", "uk.co.exdox.mobile.BuildConfig")
+    if (fixedText != currentText) {
+        entryPointFile.write(fixedText, "UTF-8")
+    }
+}
+
+tasks.register("fixReactNativeApplicationEntryPointPackage") {
+    doLast {
+        fixReactNativeEntryPointPackage()
+    }
+}
+
+afterEvaluate {
+    tasks.matching { task ->
+        task.name in ["compileDebugJavaWithJavac", "compileReleaseJavaWithJavac"]
+    }.configureEach { task ->
+        task.doFirst {
+            fixReactNativeEntryPointPackage()
+        }
     }
 }
