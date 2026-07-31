@@ -4923,6 +4923,7 @@ const styles = StyleSheet.create({
     height: 92,
     alignSelf: 'center',
     marginBottom: 12,
+    borderRadius: 20,
   },
   authTitle: {
     fontSize: 30,
