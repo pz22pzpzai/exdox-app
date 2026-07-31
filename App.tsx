@@ -7,6 +7,7 @@ import {
   FlatList,
   Image,
   InteractionManager,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   NativeModules,
@@ -29,7 +30,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 
 import { seedState } from './src/data/seed';
-import { loginWithEmail, registerWithEmail } from './src/services/auth';
+import { loginWithEmail } from './src/services/auth';
 import { documentExtractionService, ExtractedDocumentDraft } from './src/services/documentExtraction';
 import {
   attachCloudReceiptToClaim,
@@ -1065,20 +1066,18 @@ export default function App() {
       return;
     }
 
+    if (authMode === 'register') {
+      await openRegisterPricing();
+      return;
+    }
+
     setAuthBusy(true);
     try {
       const session =
-        authMode === 'register'
-          ? await registerWithEmail({
-              email: authEmail,
-              password: authPassword,
-              fullName: authFullName,
-              organisationName: authOrganisationName,
-            })
-          : await loginWithEmail({
-              email: authEmail,
-              password: authPassword,
-            });
+        await loginWithEmail({
+          email: authEmail,
+          password: authPassword,
+        });
 
       await activateSession(session);
       setAuthPassword('');
@@ -1127,6 +1126,15 @@ export default function App() {
       workspaceContext,
       paymentMethod,
     });
+  });
+
+  const openRegisterPricing = useEffectEvent(async () => {
+    try {
+      await Linking.openURL('https://exdox.co.uk/pricing');
+    } catch (error) {
+      void recordError('auth register pricing redirect', error);
+      Alert.alert('Open pricing failed', 'We could not open the Exdox pricing page right now.');
+    }
   });
 
   const prepareCombinedManualDocument = useEffectEvent(
@@ -2376,6 +2384,7 @@ export default function App() {
           password={authPassword}
           busy={authBusy}
           onChangeMode={setAuthMode}
+          onOpenRegisterPricing={() => void openRegisterPricing()}
           onOpenReset={() => setAuthMode('reset')}
           onBackToLogin={() => setAuthMode('login')}
           onChangeFullName={setAuthFullName}
@@ -3035,6 +3044,7 @@ function AuthScreen({
   password,
   busy,
   onChangeMode,
+  onOpenRegisterPricing,
   onOpenReset,
   onBackToLogin,
   onChangeFullName,
@@ -3050,6 +3060,7 @@ function AuthScreen({
   password: string;
   busy: boolean;
   onChangeMode: (mode: 'login' | 'register' | 'reset') => void;
+  onOpenRegisterPricing: () => void;
   onOpenReset: () => void;
   onBackToLogin: () => void;
   onChangeFullName: (value: string) => void;
@@ -3059,93 +3070,104 @@ function AuthScreen({
   onSubmit: () => void;
 }) {
   return (
-    <View style={styles.authScreen}>
-      <View style={styles.authCard}>
-        <Image source={brandLogo} resizeMode="contain" style={styles.authLogo} />
-        <Text style={styles.authTitle}>exdox</Text>
-        <Text style={styles.authSubtitle}>
-          {mode === 'login'
-            ? 'Sign in to your receipt workspace.'
-            : mode === 'register'
-              ? 'Create your secure receipt workspace.'
-              : 'Request help getting back into your Exdox workspace.'}
-        </Text>
+    <KeyboardAvoidingView
+      style={styles.authScreen}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+    >
+      <ScrollView
+        contentContainerStyle={styles.authScrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.authCard}>
+          <Image source={brandLogo} resizeMode="contain" style={styles.authLogo} />
+          <Text style={styles.authTitle}>exdox</Text>
+          <Text style={styles.authSubtitle}>
+            {mode === 'login'
+              ? 'Sign in to your receipt workspace.'
+              : mode === 'register'
+                ? 'Start your Exdox plan on the website.'
+                : 'Request help getting back into your Exdox workspace.'}
+          </Text>
 
-        {mode !== 'reset' ? (
-          <View style={styles.authTabs}>
-            <Pressable
-              style={[styles.authTab, mode === 'login' && styles.authTabActive]}
-              onPress={() => onChangeMode('login')}
-            >
-              <Text style={[styles.authTabText, mode === 'login' && styles.authTabTextActive]}>Login</Text>
+          {mode !== 'reset' ? (
+            <View style={styles.authTabs}>
+              <Pressable
+                style={[styles.authTab, mode === 'login' && styles.authTabActive]}
+                onPress={() => onChangeMode('login')}
+              >
+                <Text style={[styles.authTabText, mode === 'login' && styles.authTabTextActive]}>Login</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.authTab, mode === 'register' && styles.authTabActive]}
+                onPress={onOpenRegisterPricing}
+              >
+                <Text style={[styles.authTabText, mode === 'register' && styles.authTabTextActive]}>Register</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable style={styles.authSecondaryLink} onPress={onBackToLogin}>
+              <Text style={styles.authSecondaryLinkText}>Back to login</Text>
             </Pressable>
-            <Pressable
-              style={[styles.authTab, mode === 'register' && styles.authTabActive]}
-              onPress={() => onChangeMode('register')}
-            >
-              <Text style={[styles.authTabText, mode === 'register' && styles.authTabTextActive]}>Register</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable style={styles.authSecondaryLink} onPress={onBackToLogin}>
-            <Text style={styles.authSecondaryLinkText}>Back to login</Text>
-          </Pressable>
-        )}
+          )}
 
-        {mode === 'register' ? (
-          <>
-            <TextInput
-              value={fullName}
-              onChangeText={onChangeFullName}
-              placeholder="Full name"
-              placeholderTextColor={colors.mutedText}
-              style={styles.authInput}
-            />
-            <TextInput
-              value={organisationName}
-              onChangeText={onChangeOrganisationName}
-              placeholder="Business name"
-              placeholderTextColor={colors.mutedText}
-              style={styles.authInput}
-            />
-          </>
-        ) : null}
-        <TextInput
-          value={email}
-          onChangeText={onChangeEmail}
-          placeholder={mode === 'reset' ? 'Work email' : 'Email'}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          placeholderTextColor={colors.mutedText}
-          style={styles.authInput}
-        />
-        {mode !== 'reset' ? (
+          {mode === 'register' ? (
+            <>
+              <TextInput
+                value={fullName}
+                onChangeText={onChangeFullName}
+                placeholder="Full name"
+                placeholderTextColor={colors.mutedText}
+                style={styles.authInput}
+              />
+              <TextInput
+                value={organisationName}
+                onChangeText={onChangeOrganisationName}
+                placeholder="Business name"
+                placeholderTextColor={colors.mutedText}
+                style={styles.authInput}
+              />
+            </>
+          ) : null}
           <TextInput
-            value={password}
-            onChangeText={onChangePassword}
-            placeholder="Password"
-            secureTextEntry
+            value={email}
+            onChangeText={onChangeEmail}
+            placeholder={mode === 'reset' ? 'Work email' : 'Email'}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
             placeholderTextColor={colors.mutedText}
             style={styles.authInput}
           />
-        ) : null}
+          {mode !== 'reset' ? (
+            <TextInput
+              value={password}
+              onChangeText={onChangePassword}
+              placeholder="Password"
+              secureTextEntry
+              placeholderTextColor={colors.mutedText}
+              style={styles.authInput}
+            />
+          ) : null}
 
-        <Pressable style={[styles.authButton, busy && styles.authButtonDisabled]} onPress={onSubmit} disabled={busy}>
-          {busy ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.authButtonText}>
-              {mode === 'login' ? 'Sign in' : mode === 'register' ? 'Create account' : 'Request reset help'}
-            </Text>
-          )}
-        </Pressable>
-        {mode === 'login' ? (
-          <Pressable style={styles.authSecondaryLink} onPress={onOpenReset}>
-            <Text style={styles.authSecondaryLinkText}>Forgot password?</Text>
+          <Pressable style={[styles.authButton, busy && styles.authButtonDisabled]} onPress={onSubmit} disabled={busy}>
+            {busy ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.authButtonText}>
+                {mode === 'login' ? 'Sign in' : mode === 'register' ? 'View pricing' : 'Request reset help'}
+              </Text>
+            )}
           </Pressable>
-        ) : null}
-      </View>
-    </View>
+          {mode === 'login' ? (
+            <Pressable style={styles.authSecondaryLink} onPress={onOpenReset}>
+              <Text style={styles.authSecondaryLinkText}>Forgot password?</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -4882,9 +4904,13 @@ const styles = StyleSheet.create({
   },
   authScreen: {
     flex: 1,
-    justifyContent: 'center',
     paddingHorizontal: 24,
     backgroundColor: colors.band,
+  },
+  authScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 24,
   },
   authCard: {
     backgroundColor: colors.white,
