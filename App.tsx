@@ -92,7 +92,7 @@ type ThemeOption = UserSettings['theme'];
 const brandLogo = require('./assets/exdox-logo.png');
 const brandMark = require('./assets/exdox-mark.png');
 const brandBadge = require('./assets/brand-badge.png');
-const workspaceName = 'exdox Workspace';
+const workspaceName = 'Exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
 const COST_CATEGORY_OPTIONS = [
   'Staff Welfare',
@@ -3111,7 +3111,7 @@ function AuthScreen({
       >
         <View style={styles.authCard}>
           <Image source={brandLogo} resizeMode="contain" style={styles.authLogo} />
-          <Text style={styles.authTitle}>exdox</Text>
+          <Text style={styles.authTitle}>Exdox</Text>
           <Text style={styles.authSubtitle}>
             {mode === 'login'
               ? 'Sign in to your receipt workspace.'

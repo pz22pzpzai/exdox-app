@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "exdox",
+    "name": "Exdox",
     "slug": "exdox",
     "version": "1.0.1",
     "orientation": "portrait",
@@ -42,7 +42,7 @@
       "expo-secure-store"
     ],
     "extra": {
-      "appDisplayName": "exdox",
+      "appDisplayName": "Exdox",
       "expensesApiUrl": "https://hz2zkm6jkf.execute-api.eu-west-2.amazonaws.com/prod/api/v1/expenses/process"
     }
   }
