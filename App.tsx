@@ -75,6 +75,7 @@ import {
 type MainTab = 'costs' | 'sales' | 'claims' | 'more';
 type MoreSheetTarget = 'menu' | 'capture_actions';
 type CameraCaptureMode = 'single' | 'multiple' | 'combine';
+type ArchiveTarget = 'cost' | 'sales';
 type SettingsPanelTarget =
   | 'business_admin'
   | 'logins'
@@ -817,6 +818,7 @@ export default function App() {
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
   const [settingsPanelTarget, setSettingsPanelTarget] = useState<SettingsPanelTarget | null>(null);
   const [claimComposerVisible, setClaimComposerVisible] = useState(false);
@@ -1515,6 +1517,17 @@ export default function App() {
         return right.createdAt.localeCompare(left.createdAt);
       });
   }, [activeTab, appState.documents, deferredSearch, sortMode, statusFilter]);
+
+  const archiveDocuments = useMemo(() => {
+    if (!archiveTarget) {
+      return [];
+    }
+
+    return appState.documents
+      .filter((document) => document.workspaceContext === archiveTarget)
+      .filter((document) => document.status === 'submitted' || document.status === 'paid')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }, [appState.documents, archiveTarget]);
 
   const selectedDocument = useMemo(
     () => appState.documents.find((document) => document.id === selectedDocumentId) ?? null,
@@ -2584,14 +2597,30 @@ export default function App() {
 
         <HeaderMenuSheet
           visible={headerMenuVisible}
+          activeTab={activeTab}
           bulkSelectionEnabled={bulkSelectionEnabled}
           selectedCount={selectedDocumentIds.length}
           onClose={() => setHeaderMenuVisible(false)}
+          onOpenArchive={() => {
+            setHeaderMenuVisible(false);
+            setArchiveTarget(activeTab === 'sales' ? 'sales' : 'cost');
+          }}
           onSelectMultiple={handleOpenBulkSelection}
           onRefresh={() => void handleRefreshFeed()}
           onBulkMarkReviewed={() => void handleBulkMarkReviewed()}
           onBulkDelete={handleBulkDelete}
           onClearSelection={clearBulkSelection}
+        />
+
+        <ArchiveSheet
+          visible={Boolean(archiveTarget)}
+          target={archiveTarget}
+          documents={archiveDocuments}
+          onClose={() => setArchiveTarget(null)}
+          onOpenDocument={(documentId) => {
+            setArchiveTarget(null);
+            setSelectedDocumentId(documentId);
+          }}
         />
 
         <NotificationsSheet
@@ -3607,9 +3636,11 @@ function MoreSheet({
 
 function HeaderMenuSheet({
   visible,
+  activeTab,
   bulkSelectionEnabled,
   selectedCount,
   onClose,
+  onOpenArchive,
   onSelectMultiple,
   onRefresh,
   onBulkMarkReviewed,
@@ -3617,9 +3648,11 @@ function HeaderMenuSheet({
   onClearSelection,
 }: {
   visible: boolean;
+  activeTab: MainTab;
   bulkSelectionEnabled: boolean;
   selectedCount: number;
   onClose: () => void;
+  onOpenArchive: () => void;
   onSelectMultiple: () => void;
   onRefresh: () => void;
   onBulkMarkReviewed: () => void;
@@ -3636,6 +3669,11 @@ function HeaderMenuSheet({
         <View style={styles.headerMenuCard}>
           {!bulkSelectionEnabled ? (
             <>
+              {activeTab === 'costs' || activeTab === 'sales' ? (
+                <Pressable style={styles.headerMenuRow} onPress={onOpenArchive}>
+                  <Text style={styles.headerMenuText}>Archive</Text>
+                </Pressable>
+              ) : null}
               <Pressable style={styles.headerMenuRow} onPress={onSelectMultiple}>
                 <Text style={styles.headerMenuText}>Select multiple items</Text>
               </Pressable>
@@ -4694,6 +4732,91 @@ function CameraCapture({
   );
 }
 
+function ArchiveSheet({
+  visible,
+  target,
+  documents,
+  onClose,
+  onOpenDocument,
+}: {
+  visible: boolean;
+  target: ArchiveTarget | null;
+  documents: ExpenseDocument[];
+  onClose: () => void;
+  onOpenDocument: (documentId: string) => void;
+}) {
+  if (!visible || !target) {
+    return null;
+  }
+
+  const groupedDocuments = documents.reduce<Array<{ title: string; items: ExpenseDocument[] }>>((groups, document) => {
+    const dateValue = document.date || document.createdAt;
+    const title = formatMonthYear(dateValue);
+    const existingGroup = groups.find((group) => group.title === title);
+    if (existingGroup) {
+      existingGroup.items.push(document);
+      return groups;
+    }
+    groups.push({
+      title,
+      items: [document],
+    });
+    return groups;
+  }, []);
+
+  return (
+    <Modal visible transparent={false} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.archiveScreen}>
+        <View style={styles.archiveHeader}>
+          <Pressable style={styles.archiveBackButton} onPress={onClose}>
+            <Ionicons name="chevron-back" size={26} color={colors.nearBlack} />
+          </Pressable>
+          <View style={styles.archiveHeaderCopy}>
+            <Text style={styles.archiveTitle}>Archive</Text>
+            <Text style={styles.archiveSubtitle}>{target === 'sales' ? 'Sales history' : 'Costs history'}</Text>
+          </View>
+        </View>
+
+        {!documents.length ? (
+          <View style={styles.archiveEmptyState}>
+            <BlankPanel
+              icon={target === 'sales' ? 'document-text-outline' : 'archive-outline'}
+              title={`No ${target === 'sales' ? 'sales' : 'costs'} history yet`}
+              copy={`Submitted ${target === 'sales' ? 'sales documents' : 'cost items'} will appear here.`}
+            />
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.archiveContent} showsVerticalScrollIndicator={false}>
+            {groupedDocuments.map((group) => (
+              <View key={group.title}>
+                <View style={styles.archiveMonthHeader}>
+                  <Text style={styles.archiveMonthHeaderText}>{group.title}</Text>
+                </View>
+                {group.items.map((document) => (
+                  <Pressable
+                    key={document.id}
+                    style={styles.archiveRow}
+                    onPress={() => onOpenDocument(document.id)}
+                  >
+                    <View style={styles.archiveRowMain}>
+                      <Text style={styles.archiveRowTitle}>{document.title}</Text>
+                      <Text style={styles.archiveRowAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+                    </View>
+                    <View style={styles.archiveRowRight}>
+                      <Text style={styles.archiveRowDate}>{formatDate(document.date || document.createdAt)}</Text>
+                      <StatusPill status={document.status} onPress={() => onOpenDocument(document.id)} />
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function CameraSheet({
   type,
   lowResolution,
@@ -4868,6 +4991,17 @@ function formatDate(value: string) {
       year: 'numeric',
     })
     .replace(/,/g, '');
+}
+
+function formatMonthYear(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown month';
+  }
+  return date.toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
 function formatDateTime(value: string) {
@@ -6283,6 +6417,91 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.mutedText,
     fontWeight: '700',
+  },
+  archiveScreen: {
+    flex: 1,
+    backgroundColor: colors.white,
+  },
+  archiveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  archiveBackButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  archiveHeaderCopy: {
+    flex: 1,
+  },
+  archiveTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  archiveSubtitle: {
+    marginTop: 4,
+    fontSize: 16,
+    color: colors.mutedText,
+  },
+  archiveContent: {
+    paddingBottom: 32,
+  },
+  archiveEmptyState: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  archiveMonthHeader: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 24,
+    paddingTop: 22,
+    paddingBottom: 10,
+  },
+  archiveMonthHeaderText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  archiveRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+    gap: 14,
+  },
+  archiveRowMain: {
+    flex: 1,
+    gap: 8,
+    paddingRight: 8,
+  },
+  archiveRowTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  archiveRowAmount: {
+    fontSize: 16,
+    color: colors.mutedText,
+  },
+  archiveRowRight: {
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  archiveRowDate: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.slate,
   },
   panelSheet: {
     backgroundColor: colors.white,
