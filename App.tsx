@@ -89,7 +89,6 @@ type StatusFilter = 'all' | ExpenseDocument['status'];
 type SortMode = 'newest' | 'oldest' | 'amount_high' | 'amount_low';
 type ThemeOption = UserSettings['theme'];
 
-const brandLogo = require('./assets/exdox-logo.png');
 const brandMark = require('./assets/exdox-mark.png');
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'Exdox Workspace';
@@ -1136,6 +1135,19 @@ export default function App() {
     } catch (error) {
       void recordError('auth register pricing redirect', error);
       Alert.alert('Open pricing failed', 'We could not open the Exdox pricing page right now.');
+    }
+  });
+
+  const openForgotPassword = useEffectEvent(async () => {
+    const targetUrl = authEmail.trim()
+      ? `https://exdox.co.uk/forgot-password?email=${encodeURIComponent(authEmail.trim())}`
+      : 'https://exdox.co.uk/forgot-password';
+
+    try {
+      await Linking.openURL(targetUrl);
+    } catch (error) {
+      void recordError('auth forgot password redirect', error);
+      Alert.alert('Open reset failed', 'We could not open the Exdox password reset page right now.');
     }
   });
 
@@ -2398,7 +2410,7 @@ export default function App() {
           busy={authBusy}
           onChangeMode={setAuthMode}
           onOpenRegisterPricing={() => void openRegisterPricing()}
-          onOpenReset={() => setAuthMode('reset')}
+          onOpenReset={() => void openForgotPassword()}
           onBackToLogin={() => setAuthMode('login')}
           onChangeFullName={setAuthFullName}
           onChangeOrganisationName={setAuthOrganisationName}
@@ -3110,7 +3122,7 @@ function AuthScreen({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
-          <Image source={brandLogo} resizeMode="contain" style={styles.authLogo} />
+          <Image source={brandMark} resizeMode="contain" style={styles.authLogo} />
           <Text style={styles.authTitle}>Exdox</Text>
           <Text style={styles.authSubtitle}>
             {mode === 'login'
