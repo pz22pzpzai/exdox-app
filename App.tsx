@@ -306,10 +306,11 @@ const markDuplicateUploadDraft = (
   }
 
   return {
-    ...extracted,
+    ...buildDuplicateExtractedDraft(currentDocument.type, currentDocument.fileName || currentDocument.title),
+    currency: extracted.currency || currentDocument.currency || 'GBP',
+    workspaceContext: extracted.workspaceContext ?? currentDocument.workspaceContext,
+    paymentMethod: extracted.paymentMethod ?? currentDocument.paymentMethod,
     notes: duplicateReceiptStatusMessage,
-    extractionOutcome: 'failed',
-    needsReview: true,
   };
 };
 
@@ -319,6 +320,31 @@ const formatDuplicateDocumentLabel = (fileName: string) =>
     .replace(/[-_]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim() || 'Duplicate receipt';
+
+function buildDuplicateExtractedDraft(type: DocumentKind, fileName: string): ExtractedDocumentDraft {
+  return {
+    supplier: formatDuplicateDocumentLabel(fileName),
+    amount: 0,
+    netAmount: 0,
+    vatAmount: 0,
+    taxRateApplied: 'No VAT',
+    taxAmount: 0,
+    currency: 'GBP',
+    category: type === 'invoice' ? 'Accounts Payable' : 'General',
+    notes: duplicateReceiptStatusMessage,
+    dueDate:
+      type === 'invoice'
+        ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString()
+        : undefined,
+    invoiceNumber: type === 'invoice' ? `INV-${Date.now().toString().slice(-5)}` : undefined,
+    extractionSource: 'fallback_review',
+    confidenceScore: null,
+    needsReview: true,
+    lineItems: [],
+    taxBreakdown: [],
+    extractionOutcome: 'failed',
+  };
+}
 
 const buildBlockedDuplicateDocument = ({
   fileName,
