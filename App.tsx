@@ -807,6 +807,8 @@ const DocumentPreviewCarousel = memo(function DocumentPreviewCarousel({
     <ScrollView
       horizontal
       pagingEnabled
+      nestedScrollEnabled
+      directionalLockEnabled
       showsHorizontalScrollIndicator={false}
       bounces={false}
       style={fullScreen ? styles.previewCarouselFullScreen : styles.previewCarousel}
@@ -4485,19 +4487,26 @@ function DocumentSheet({
               showsVerticalScrollIndicator={false}
             >
               {hasPreviewImage ? (
-                <Pressable
-                  style={styles.documentSheetPreviewButton}
-                  onPress={() => {
-                    InteractionManager.runAfterInteractions(() => {
-                      setPreviewVisible(true);
-                    });
-                  }}
-                >
+                <View style={styles.documentSheetPreviewPanel}>
                   <DocumentPreviewCarousel previewUris={previewUris} />
-                  <Text style={styles.documentSheetPreviewHint}>
-                    {previewUris.length > 1 ? `Swipe to view ${previewUris.length} images, or tap to open full screen` : 'Tap to view full image'}
-                  </Text>
-                </Pressable>
+                  <View style={styles.documentSheetPreviewActions}>
+                    <Text style={styles.documentSheetPreviewHint}>
+                      {previewUris.length > 1 ? `Swipe to view ${previewUris.length} images` : 'Preview image'}
+                    </Text>
+                    <Pressable
+                      style={styles.documentSheetPreviewLink}
+                      onPress={() => {
+                        InteractionManager.runAfterInteractions(() => {
+                          setPreviewVisible(true);
+                        });
+                      }}
+                    >
+                      <Text style={styles.documentSheetPreviewLinkText}>
+                        {previewUris.length > 1 ? 'Open full screen' : 'Tap to open full screen'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               ) : null}
           <Text style={styles.documentSheetTitle}>{document.title}</Text>
           <Text style={styles.documentSheetMeta}>{document.supplier}</Text>
@@ -5944,7 +5953,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.nearBlack,
   },
-  documentSheetPreviewButton: {
+  documentSheetPreviewPanel: {
     marginBottom: 18,
   },
   documentSheetPreview: {
@@ -5965,11 +5974,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  documentSheetPreviewHint: {
+  documentSheetPreviewActions: {
     marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  documentSheetPreviewHint: {
     fontSize: 13,
     color: colors.mutedText,
-    textAlign: 'center',
+    flex: 1,
+  },
+  documentSheetPreviewLink: {
+    paddingVertical: 4,
+  },
+  documentSheetPreviewLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.royalBlueDark,
   },
   documentSheetMeta: {
     marginTop: 6,
