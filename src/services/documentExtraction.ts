@@ -314,7 +314,7 @@ function buildDuplicateDraft(type: DocumentKind, fileName: string): ExtractedDoc
     taxAmount: 0,
     currency: 'GBP',
     category: type === 'invoice' ? 'Accounts Payable' : 'General',
-    notes: 'Error: Duplicate',
+    notes: 'Error: This is a duplicate',
     dueDate:
       type === 'invoice'
         ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString()

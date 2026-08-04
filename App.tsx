@@ -89,7 +89,6 @@ type StatusFilter = 'all' | ExpenseDocument['status'];
 type SortMode = 'newest' | 'oldest' | 'amount_high' | 'amount_low';
 type ThemeOption = UserSettings['theme'];
 
-const brandMark = require('./assets/exdox-mark.png');
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'Exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
@@ -314,6 +313,54 @@ const markDuplicateUploadDraft = (
   };
 };
 
+const formatDuplicateDocumentLabel = (fileName: string) =>
+  fileName
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Duplicate receipt';
+
+const buildBlockedDuplicateDocument = ({
+  fileName,
+  source,
+  type,
+  uri,
+  workspaceContext,
+  paymentMethod,
+}: {
+  fileName: string;
+  source: ExpenseDocument['source'];
+  type: DocumentKind;
+  uri?: string;
+  workspaceContext: WorkspaceContext;
+  paymentMethod: PaymentMethod;
+}): ExpenseDocument => {
+  const duplicateDocument = buildManualDraftDocument({
+    fileName,
+    type,
+    uri,
+    previewImageUri: uri,
+    previewImageUris: uri ? [uri] : undefined,
+    source,
+    workspaceContext,
+    paymentMethod,
+  });
+
+  return {
+    ...duplicateDocument,
+    title: formatDuplicateDocumentLabel(fileName),
+    supplier: formatDuplicateDocumentLabel(fileName),
+    amount: 0,
+    netAmount: 0,
+    vatAmount: 0,
+    taxAmount: 0,
+    notes: duplicateReceiptStatusMessage,
+    extractionStatus: 'failed',
+    extractionSource: 'fallback_review',
+    needsReview: true,
+  };
+};
+
 const canPreviewDocumentInline = (
   document: Pick<ExpenseDocument, 'fileName' | 'fileUri' | 'previewImageUri' | 'previewImageUris'>,
 ) => Boolean(getPrimaryDocumentPreviewUri(document));
@@ -416,7 +463,7 @@ const normalizeDuplicateComparisonText = (value: string | null | undefined) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 
-const duplicateReceiptStatusMessage = 'Error: Duplicate';
+const duplicateReceiptStatusMessage = 'Error: This is a duplicate';
 
 const getDocumentFileNameCandidates = (document: Pick<ExpenseDocument, 'fileName' | 'fileUri'>) => {
   const candidates = new Set<string>();
@@ -510,6 +557,10 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
     return false;
   }
 
+  if (extractionLooksLikeDuplicateUpload(localDocument)) {
+    return false;
+  }
+
   if (localDocument.type !== cloudDocument.type || localDocument.workspaceContext !== cloudDocument.workspaceContext) {
     return false;
   }
@@ -535,7 +586,9 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
 };
 
 const extractionLooksLikeDuplicateUpload = (input: { notes?: string | null }) =>
-  /upload error:\s*duplicate receipt|duplicate receipt/.test((input.notes ?? '').toLowerCase());
+  /upload error:\s*duplicate receipt|duplicate receipt|error:\s*this is a duplicate/.test(
+    (input.notes ?? '').toLowerCase(),
+  );
 
 const isLikelyDuplicateReceiptMatch = (document: ExpenseDocument, candidate: ExpenseDocument) => {
   if (!candidate.cloudReceiptId || document.id === candidate.id) {
@@ -1838,11 +1891,25 @@ export default function App() {
         type,
       });
       if (existingDuplicate) {
-        Alert.alert(
-          'Duplicate receipt',
-          `${fileName} already exists in this ${workspaceContext === 'sales' ? 'sales' : workspaceContext === 'vault' ? 'vault' : 'costs'} workspace and was not uploaded again.`,
-        );
-        return null;
+        const duplicateDocument = buildBlockedDuplicateDocument({
+          fileName,
+          source,
+          type,
+          uri,
+          workspaceContext,
+          paymentMethod,
+        });
+        updateState((current) => ({
+          ...current,
+          documents: [duplicateDocument, ...current.documents],
+        }));
+        if (openDetails) {
+          setSelectedDocumentId(duplicateDocument.id);
+        } else {
+          setSelectedDocumentId(null);
+        }
+        setActiveTab(workspaceContext === 'sales' ? 'sales' : 'costs');
+        return duplicateDocument;
       }
 
       const nextDocument = await buildDraftDocument({
@@ -3123,7 +3190,7 @@ function AuthScreen({
       >
         <View style={styles.authCard}>
           <View style={styles.authLogoFrame}>
-            <Image source={brandMark} resizeMode="contain" style={styles.authLogo} />
+            <Image source={brandBadge} resizeMode="contain" style={styles.authLogo} />
           </View>
           <Text style={styles.authTitle}>Exdox</Text>
           <Text style={styles.authSubtitle}>
@@ -3426,7 +3493,7 @@ const DocumentRow = memo(function DocumentRow({
   const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
   const extractionStatusText =
     isDuplicateReceipt
-      ? 'Error: Duplicate detected'
+      ? duplicateReceiptStatusMessage
       : document.extractionStatus === 'pending'
         ? 'Reading receipt...'
       : isUnreadableReceipt
@@ -5078,8 +5145,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   authLogo: {
-    width: 156,
-    height: 78,
+    width: 132,
+    height: 96,
   },
   authTitle: {
     fontSize: 30,
