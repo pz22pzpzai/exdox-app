@@ -3490,7 +3490,9 @@ const DocumentRow = memo(function DocumentRow({
   const previewUri = getPrimaryDocumentPreviewUri(document);
   const isDuplicateReceipt = extractionLooksLikeDuplicateUpload(document);
   const isProcessing = document.extractionStatus === 'pending' && !isDuplicateReceipt;
-  const isUnreadableReceipt = document.extractionStatus === 'failed' || extractionLooksUnreadable(document);
+  const isUnreadableReceipt =
+    document.extractionStatus !== 'pending' &&
+    (document.extractionStatus === 'failed' || extractionLooksUnreadable(document));
   const extractionStatusText =
     isDuplicateReceipt
       ? duplicateReceiptStatusMessage
