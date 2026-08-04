@@ -295,12 +295,17 @@ const markDuplicateUploadDraft = (
   extracted: ExtractedDocumentDraft,
   documents: ExpenseDocument[],
 ): ExtractedDocumentDraft => {
-  if (!currentDocument || extracted.cloudReceiptId || extractionLooksLikeDuplicateUpload(extracted)) {
+  if (!currentDocument || extractionLooksLikeDuplicateUpload(extracted)) {
     return extracted;
   }
 
   const nextDocument = applyExtractedDocumentDraft(currentDocument, extracted);
-  const matchingCloudDocument = documents.find((candidate) => isLikelyDuplicateReceiptMatch(nextDocument, candidate));
+  const matchingCloudDocument = documents.find(
+    (candidate) =>
+      candidate.id !== currentDocument.id &&
+      ((extracted.cloudReceiptId && candidate.cloudReceiptId === extracted.cloudReceiptId) ||
+        isLikelyDuplicateReceiptMatch(nextDocument, candidate)),
+  );
   if (!matchingCloudDocument) {
     return extracted;
   }
@@ -654,6 +659,7 @@ const findExistingExactFileNameDuplicate = (
   },
 ) =>
   documents.find((document) =>
+    !extractionLooksLikeDuplicateUpload(document) &&
     document.workspaceContext === input.workspaceContext &&
     document.type === input.type &&
     hasExactMatchingFileName(
@@ -875,6 +881,7 @@ export default function App() {
   const handledGalleryAssetRef = useRef<string | null>(null);
   const deletedCloudReceiptIdsRef = useRef<Set<number>>(new Set());
   const [appState, setAppState] = useState<AppState>(seedState);
+  const appStateRef = useRef<AppState>(seedState);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
   const [authFullName, setAuthFullName] = useState('');
@@ -926,6 +933,10 @@ export default function App() {
   const shellTextStyle = effectiveTheme === 'dark' ? styles.shellTextDark : null;
 
   useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
+
+  useEffect(() => {
     let mounted = true;
 
     const restoreState = async () => {
@@ -940,6 +951,7 @@ export default function App() {
           setAuthSession(savedAuthSession);
           const savedState = await loadScopedStoredState(String(savedAuthSession.user.id));
           if (savedState && mounted) {
+            appStateRef.current = savedState;
             setAppState(savedState);
           }
         }
@@ -1060,7 +1072,7 @@ export default function App() {
         }),
       );
 
-      setAppState((current) => ({
+      updateState((current) => ({
         ...current,
         documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments, deletedCloudReceiptIdsRef.current),
         claims: remoteClaims,
@@ -1079,10 +1091,12 @@ export default function App() {
     await saveAuthSession(session);
     const savedState = await loadScopedStoredState(String(session.user.id));
     setAuthSession(session);
-    setAppState(savedState ?? seedState);
+    const nextState = savedState ?? seedState;
+    appStateRef.current = nextState;
+    setAppState(nextState);
     try {
       const organisationSettings = await fetchOrganisationSettings();
-      setAppState((current) => ({
+      updateState((current) => ({
         ...current,
         organisationSettings,
       }));
@@ -1095,6 +1109,7 @@ export default function App() {
   const handleSignOut = useEffectEvent(async () => {
     setSessionToken(null);
     setAuthSession(null);
+    appStateRef.current = seedState;
     setAppState(seedState);
     setSelectedDocumentId(null);
     setActiveTab('costs');
@@ -1287,14 +1302,38 @@ export default function App() {
           document.source,
           `Deferred commit starting from ${origin} | fileUri=${document.fileUri ?? 'undefined'}`,
         );
+        const existingDuplicate = findExistingExactFileNameDuplicate(appStateRef.current.documents, {
+          fileName: document.fileName,
+          workspaceContext: document.workspaceContext,
+          type: document.type,
+        });
+        const committedDocument = existingDuplicate
+          ? buildBlockedDuplicateDocument({
+              fileName: document.fileName,
+              source: document.source,
+              type: document.type,
+              uri: document.fileUri,
+              workspaceContext: document.workspaceContext,
+              paymentMethod: document.paymentMethod,
+            })
+          : document;
+        const shouldUploadDocument = !existingDuplicate;
         updateState((current) => ({
           ...current,
-          documents: [document, ...current.documents],
+          documents: [committedDocument, ...current.documents],
         }));
         setActiveTab(document.type === 'invoice' ? 'sales' : 'costs');
         setSelectedDocumentId(null);
         if (options?.openReview ?? true) {
-          setCaptureReviewDocumentId(document.id);
+          setCaptureReviewDocumentId(committedDocument.id);
+        }
+        if (!shouldUploadDocument) {
+          await recordDiagnostic(
+            document.source,
+            `Duplicate ${origin} document blocked before upload: ${document.fileName}`,
+          );
+          await recordDiagnostic(document.source, `Deferred commit complete from ${origin}`);
+          return;
         }
         setTimeout(() => {
           void processPreparedDocumentUpload({
@@ -1368,14 +1407,18 @@ export default function App() {
         type,
         fileName,
         uri: fileUri,
-        lowResolution: appState.settings.lowResolution,
+        lowResolution: appStateRef.current.settings.lowResolution,
         source,
         workspaceContext,
         paymentMethod,
         skipProcessing: workspaceContext === 'vault',
       });
-      let currentDocument = appState.documents.find((document) => document.id === documentId);
-      const extractedWithDuplicateHint = markDuplicateUploadDraft(currentDocument, extracted, appState.documents);
+      let currentDocument = appStateRef.current.documents.find((document) => document.id === documentId);
+      const extractedWithDuplicateHint = markDuplicateUploadDraft(
+        currentDocument,
+        extracted,
+        appStateRef.current.documents,
+      );
       const nextDocument = currentDocument ? applyExtractedDocumentDraft(currentDocument, extractedWithDuplicateHint) : null;
       await recordDiagnostic(source, `Background upload complete for ${fileName}`);
       updateState((current) => ({
@@ -1384,6 +1427,19 @@ export default function App() {
           document.id === documentId ? applyExtractedDocumentDraft(document, extractedWithDuplicateHint) : document,
         ),
       }));
+      if (extractionLooksLikeDuplicateUpload(extractedWithDuplicateHint)) {
+        if (
+          authSession &&
+          extracted.cloudReceiptId &&
+          !appStateRef.current.documents.some(
+            (document) => document.id !== documentId && document.cloudReceiptId === extracted.cloudReceiptId,
+          )
+        ) {
+          await deleteCloudReceipt(extracted.cloudReceiptId);
+          await syncCloudWorkspace(authSession);
+        }
+        return;
+      }
       if (resolveExtractedDraftStatus(extractedWithDuplicateHint) === 'pending') {
         await recordDiagnostic(source, `Waiting for cloud extraction handshake for ${fileName}`);
         if (authSession) {
@@ -1391,7 +1447,7 @@ export default function App() {
           for (let attempt = 1; attempt <= 8; attempt += 1) {
             await delay(3000);
             const latestLocalDocument =
-              appState.documents.find((document) => document.id === documentId) ?? currentDocument ?? nextDocument;
+              appStateRef.current.documents.find((document) => document.id === documentId) ?? currentDocument ?? nextDocument;
             if (!latestLocalDocument) {
               break;
             }
@@ -1420,7 +1476,7 @@ export default function App() {
 
               cloudMatchFound = true;
               await recordDiagnostic(source, `Cloud extraction handshake received for ${fileName} on attempt ${attempt}`);
-              setAppState((current) => ({
+              updateState((current) => ({
                 ...current,
                 documents: mergeWorkspaceDocuments(current.documents, cloudDocuments, deletedCloudReceiptIdsRef.current),
               }));
@@ -1440,11 +1496,11 @@ export default function App() {
 
         return;
       }
-      if (authSession && extracted.cloudReceiptId && nextDocument) {
-        await updateCloudReceipt(extracted.cloudReceiptId, buildCloudReceiptSyncUpdates(nextDocument));
+      if (authSession && extractedWithDuplicateHint.cloudReceiptId && nextDocument) {
+        await updateCloudReceipt(extractedWithDuplicateHint.cloudReceiptId, buildCloudReceiptSyncUpdates(nextDocument));
         await syncCloudWorkspace(authSession);
       }
-      if (authSession && !extracted.cloudReceiptId) {
+      if (authSession && !extractedWithDuplicateHint.cloudReceiptId) {
         await delay(1200);
         await syncCloudWorkspace(authSession);
       }
@@ -1462,7 +1518,7 @@ export default function App() {
     if (!appState.organisationSettings) {
       fetchOrganisationSettings()
         .then((organisationSettings) => {
-          setAppState((current) => ({
+          updateState((current) => ({
             ...current,
             organisationSettings,
           }));
@@ -1568,7 +1624,9 @@ export default function App() {
 
   const updateState = (updater: (current: AppState) => AppState) => {
     setAppState((current) => {
-      return updater(current);
+      const next = updater(current);
+      appStateRef.current = next;
+      return next;
     });
   };
 
