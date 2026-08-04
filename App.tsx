@@ -5234,14 +5234,14 @@ const styles = StyleSheet.create({
     height: 108,
     marginBottom: 12,
     borderRadius: 24,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   authLogo: {
-    width: 132,
-    height: 96,
+    width: 150,
+    height: 100,
   },
   authTitle: {
     fontSize: 30,
