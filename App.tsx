@@ -3122,7 +3122,9 @@ function AuthScreen({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
-          <Image source={brandMark} resizeMode="contain" style={styles.authLogo} />
+          <View style={styles.authLogoFrame}>
+            <Image source={brandMark} resizeMode="contain" style={styles.authLogo} />
+          </View>
           <Text style={styles.authTitle}>Exdox</Text>
           <Text style={styles.authSubtitle}>
             {mode === 'login'
@@ -5064,12 +5066,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 28,
   },
-  authLogo: {
-    width: 180,
-    height: 92,
+  authLogoFrame: {
     alignSelf: 'center',
+    width: 200,
+    height: 108,
     marginBottom: 12,
-    borderRadius: 20,
+    borderRadius: 24,
+    backgroundColor: '#f5f7fb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  authLogo: {
+    width: 156,
+    height: 78,
   },
   authTitle: {
     fontSize: 30,
