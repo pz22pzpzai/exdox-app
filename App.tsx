@@ -1227,10 +1227,10 @@ export default function App() {
 
   const openRegisterPricing = useEffectEvent(async () => {
     try {
-      await Linking.openURL('https://exdox.co.uk/pricing');
+      await Linking.openURL('https://exdox.co.uk/register');
     } catch (error) {
       void recordError('auth register pricing redirect', error);
-      Alert.alert('Open pricing failed', 'We could not open the Exdox pricing page right now.');
+      Alert.alert('Open registration failed', 'We could not open Exdox registration right now.');
     }
   });
 
@@ -3283,7 +3283,7 @@ function AuthScreen({
             {mode === 'login'
               ? 'Sign in to your receipt workspace.'
               : mode === 'register'
-                ? 'Start your Exdox plan on the website.'
+                ? 'Choose whether you are registering a business, sole trader, or employee account.'
                 : 'Request help getting back into your Exdox workspace.'}
           </Text>
 
@@ -3352,7 +3352,7 @@ function AuthScreen({
               <ActivityIndicator color={colors.white} />
             ) : (
               <Text style={styles.authButtonText}>
-                {mode === 'login' ? 'Sign in' : mode === 'register' ? 'View pricing' : 'Request reset help'}
+                {mode === 'login' ? 'Sign in' : mode === 'register' ? 'Choose account type' : 'Request reset help'}
               </Text>
             )}
           </Pressable>
