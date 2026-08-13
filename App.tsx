@@ -901,6 +901,8 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorLogs, setErrorLogs] = useState<AppErrorLog[]>([]);
   const [diagnosticLogs, setDiagnosticLogs] = useState<AppErrorLog[]>([]);
+  const [cloudSyncState, setCloudSyncState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle');
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -998,6 +1000,8 @@ export default function App() {
   });
 
   const syncCloudWorkspace = useEffectEvent(async (session: AuthSession) => {
+    setCloudSyncState('syncing');
+    setCloudSyncError(null);
     try {
       let costDocuments: ExpenseDocument[] = [];
       let salesDocuments: ExpenseDocument[] = [];
@@ -1077,11 +1081,16 @@ export default function App() {
         documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments, deletedCloudReceiptIdsRef.current),
         claims: remoteClaims,
       }));
+      setCloudSyncState('synced');
     } catch (error) {
       if (isTransientNetworkError(error)) {
         await recordDiagnostic('cloud sync', 'Cloud sync skipped because the device could not reach the server.');
+        setCloudSyncState('failed');
+        setCloudSyncError('Could not reach Exdox. Your local changes are safe; retry when connected.');
         return;
       }
+      setCloudSyncState('failed');
+      setCloudSyncError(error instanceof Error ? error.message : 'Cloud sync failed.');
       void recordError('cloud sync', error);
     }
   });
@@ -2586,6 +2595,27 @@ export default function App() {
           onOpenNotifications={() => setNotificationsVisible(true)}
           onOpenMore={() => setHeaderMenuVisible(true)}
         />
+
+        {cloudSyncState !== 'idle' ? (
+          <View style={styles.syncBanner}>
+            <Text style={styles.syncBannerText}>
+              {cloudSyncState === 'syncing'
+                ? 'Syncing with Exdox...'
+                : cloudSyncState === 'synced'
+                  ? 'Synced with Exdox'
+                  : cloudSyncError ?? 'Cloud sync failed.'}
+            </Text>
+            {cloudSyncState === 'failed' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Retry cloud sync"
+                onPress={() => void syncCloudWorkspace(authSession)}
+              >
+                <Text style={styles.syncBannerAction}>Retry</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
 
         {(activeTab === 'costs' || activeTab === 'sales' || activeTab === 'claims') && (
           <SearchBand value={search} onChangeText={setSearch} onOpenFilter={() => setFilterVisible(true)} />
@@ -5211,6 +5241,26 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.white,
+  },
+  syncBanner: {
+    minHeight: 34,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: colors.band,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  syncBannerText: {
+    flex: 1,
+    color: colors.mutedText,
+    fontSize: 12,
+  },
+  syncBannerAction: {
+    marginLeft: 12,
+    color: colors.royalBlueDark,
+    fontSize: 13,
+    fontWeight: '700',
   },
   authScreen: {
     flex: 1,
