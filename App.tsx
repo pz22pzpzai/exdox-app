@@ -409,6 +409,7 @@ const isTransientNetworkError = (error: unknown) => {
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const cloudSyncTimeoutMs = 20_000;
 
 const resolveDocumentAmount = ({
   amount,
@@ -903,6 +904,7 @@ export default function App() {
   const [diagnosticLogs, setDiagnosticLogs] = useState<AppErrorLog[]>([]);
   const [cloudSyncState, setCloudSyncState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle');
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
+  const cloudSyncAttemptRef = useRef(0);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -1000,8 +1002,16 @@ export default function App() {
   });
 
   const syncCloudWorkspace = useEffectEvent(async (session: AuthSession) => {
+    const attemptId = ++cloudSyncAttemptRef.current;
     setCloudSyncState('syncing');
     setCloudSyncError(null);
+    const timeoutId = setTimeout(() => {
+      if (cloudSyncAttemptRef.current === attemptId) {
+        setCloudSyncState('failed');
+        setCloudSyncError('Sync is taking longer than expected. Your local changes are safe.');
+      }
+    }, cloudSyncTimeoutMs);
+
     try {
       let costDocuments: ExpenseDocument[] = [];
       let salesDocuments: ExpenseDocument[] = [];
@@ -1081,8 +1091,13 @@ export default function App() {
         documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments, deletedCloudReceiptIdsRef.current),
         claims: remoteClaims,
       }));
-      setCloudSyncState('synced');
+      if (cloudSyncAttemptRef.current === attemptId) {
+        setCloudSyncState('synced');
+      }
     } catch (error) {
+      if (cloudSyncAttemptRef.current !== attemptId) {
+        return;
+      }
       if (isTransientNetworkError(error)) {
         await recordDiagnostic('cloud sync', 'Cloud sync skipped because the device could not reach the server.');
         setCloudSyncState('failed');
@@ -1092,6 +1107,8 @@ export default function App() {
       setCloudSyncState('failed');
       setCloudSyncError(error instanceof Error ? error.message : 'Cloud sync failed.');
       void recordError('cloud sync', error);
+    } finally {
+      clearTimeout(timeoutId);
     }
   });
 
@@ -2597,7 +2614,14 @@ export default function App() {
         />
 
         {cloudSyncState !== 'idle' ? (
-          <View style={styles.syncBanner}>
+          <View
+            style={[
+              styles.syncBanner,
+              cloudSyncState === 'synced' && styles.syncBannerSynced,
+              cloudSyncState === 'failed' && styles.syncBannerFailed,
+            ]}
+          >
+            {cloudSyncState === 'synced' ? <Ionicons name="checkmark-circle" size={16} color={colors.dotMint} /> : null}
             <Text style={styles.syncBannerText}>
               {cloudSyncState === 'syncing'
                 ? 'Syncing with Exdox...'
@@ -3680,7 +3704,7 @@ function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; on
 
   return (
     <Pressable style={[styles.statusPill, tone]} onPress={onPress}>
-      <Text style={styles.statusPillText}>{label}</Text>
+      <Text style={[styles.statusPillText, status === 'awaiting_review' && styles.statusPillTextReview]}>{label}</Text>
     </Pressable>
   );
 }
@@ -5259,8 +5283,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  syncBannerSynced: {
+    backgroundColor: '#EAF8F4',
+  },
+  syncBannerFailed: {
+    backgroundColor: '#FFF3E2',
+  },
   syncBannerText: {
     flex: 1,
+    marginLeft: 8,
     color: colors.mutedText,
     fontSize: 12,
   },
@@ -5571,9 +5602,9 @@ const styles = StyleSheet.create({
     color: colors.dateText,
   },
   statusPill: {
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   statusPillText: {
     fontSize: 14,
@@ -5581,7 +5612,13 @@ const styles = StyleSheet.create({
     color: colors.nearBlack,
   },
   pillReview: {
-    backgroundColor: colors.pillAmber,
+    backgroundColor: colors.royalBlueDark,
+    borderColor: colors.dotMint,
+    borderWidth: 1,
+  },
+  statusPillTextReview: {
+    color: colors.white,
+    fontWeight: '700',
   },
   pillReady: {
     backgroundColor: colors.pillBlue,
