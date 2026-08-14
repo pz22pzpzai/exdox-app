@@ -1755,11 +1755,11 @@ export default function App() {
 
   const tabTitle =
     activeTab === 'costs'
-      ? 'Costs'
+      ? 'Purchases'
       : activeTab === 'sales'
         ? 'Sales'
         : activeTab === 'claims'
-          ? 'Expense claims'
+          ? 'Reports'
           : 'Settings';
 
   const syncCaptureType = () => {
@@ -2673,7 +2673,6 @@ export default function App() {
         <BottomNav
           activeTab={activeTab}
           onSelect={setActiveTab}
-          onOpenCamera={openCapture}
           onOpenCaptureActions={openCaptureActions}
         />
 
@@ -3044,15 +3043,18 @@ function TopHeader({
   return (
     <View style={styles.header}>
       <View style={styles.headerBrandBlock}>
-        <Image source={brandBadge} resizeMode="contain" style={styles.headerBrandMark} />
+        <View style={styles.headerBrandMarkFrame}>
+          <Image source={brandBadge} resizeMode="contain" style={styles.headerBrandMark} />
+        </View>
         <View>
+          <Text style={styles.headerEyebrow}>EXDOX WORKSPACE</Text>
           <Text style={styles.headerTitle}>{title}</Text>
           <Text style={styles.headerSubtitle}>{subtitle}</Text>
         </View>
       </View>
       <View style={styles.headerActions}>
         <Pressable onPress={onOpenNotifications} hitSlop={8} style={styles.headerIconButton}>
-          <Ionicons name="notifications-outline" size={24} color={colors.nearBlack} />
+          <Ionicons name="notifications-outline" size={23} color={colors.white} />
           {notificationCount ? (
             <View style={styles.headerNotificationDot}>
               <Text style={styles.headerNotificationDotText}>{Math.min(notificationCount, 9)}</Text>
@@ -3060,7 +3062,7 @@ function TopHeader({
           ) : null}
         </Pressable>
         <Pressable onPress={onOpenMore} hitSlop={8}>
-          <Ionicons name="ellipsis-vertical" size={22} color={colors.nearBlack} />
+          <Ionicons name="ellipsis-vertical" size={22} color={colors.white} />
         </Pressable>
       </View>
     </View>
@@ -3079,17 +3081,17 @@ function SearchBand({
   return (
     <View style={styles.searchBand}>
       <View style={styles.searchRow}>
-        <Ionicons name="search-outline" size={24} color={colors.nearBlack} />
+        <Ionicons name="search-outline" size={21} color={colors.tealDeep} />
         <TextInput
           value={value}
           onChangeText={onChangeText}
-          placeholder="Search"
+          placeholder="Search your workspace"
           placeholderTextColor={colors.mutedText}
           style={styles.searchInput}
         />
       </View>
-      <Pressable onPress={onOpenFilter} hitSlop={8}>
-        <Ionicons name="filter-outline" size={24} color={colors.nearBlack} />
+      <Pressable style={styles.searchFilterButton} onPress={onOpenFilter} hitSlop={8}>
+        <Ionicons name="options-outline" size={21} color={colors.tealDeep} />
       </Pressable>
     </View>
   );
@@ -3116,9 +3118,9 @@ function CostsScreen({
     return (
       <BlankPanel
         icon="receipt-outline"
-        title="No costs yet"
-        copy="Add your first receipt to start reviewing costs."
-        actionLabel="Add document"
+        title="Your purchases start here"
+        copy="Add a receipt or bill and Exdox will prepare it for review."
+        actionLabel="Upload a purchase"
         onAction={onAddDocument}
       />
     );
@@ -3169,9 +3171,9 @@ function SalesScreen({
     return (
       <BlankPanel
         icon="document-text-outline"
-        title="No documents yet"
-        copy="Start adding sales documents to process them."
-        actionLabel="Add document"
+        title="No sales documents yet"
+        copy="Upload an invoice or sales document to keep your records together."
+        actionLabel="Upload a sale"
         onAction={onAddDocument}
       />
     );
@@ -3212,10 +3214,10 @@ function ClaimsScreen({
   if (!claims.length) {
     return (
       <BlankPanel
-        icon="newspaper-outline"
-        title="No expense claims yet"
-        copy="Create a claim, then attach processed cash or personal cost items to it."
-        actionLabel="Create claim"
+        icon="analytics-outline"
+        title="Nothing to report yet"
+        copy="Create a report when you are ready to group approved purchases."
+        actionLabel="Create a report"
         onAction={onCreateClaim}
       />
     );
@@ -3571,9 +3573,7 @@ function BlankPanel({
 }) {
   return (
     <View style={styles.blankState}>
-      <View style={styles.blankIconWrap}>
-        <Ionicons name={icon} size={78} color={colors.midBlueGrey} />
-      </View>
+      <EmptyOrbit icon={icon} />
       <Text style={styles.blankTitle}>{title}</Text>
       {copy ? <Text style={styles.blankCopy}>{copy}</Text> : null}
       {actionLabel ? (
@@ -3688,21 +3688,19 @@ function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; on
 function BottomNav({
   activeTab,
   onSelect,
-  onOpenCamera,
   onOpenCaptureActions,
 }: {
   activeTab: MainTab;
   onSelect: (tab: MainTab) => void;
-  onOpenCamera: () => void;
   onOpenCaptureActions: () => void;
 }) {
   return (
     <View style={styles.bottomBar}>
       <BottomTabItem
         active={activeTab === 'costs'}
-        label="Costs"
-        icon="cart-outline"
-        activeIcon="cart"
+        label="Purchases"
+        icon="bag-handle-outline"
+        activeIcon="bag-handle"
         onPress={() => onSelect('costs')}
       />
       <BottomTabItem
@@ -3712,27 +3710,24 @@ function BottomNav({
         activeIcon="albums"
         onPress={() => onSelect('sales')}
       />
-      <View style={styles.capturePill}>
-        <Pressable style={styles.capturePrimaryButton} onPress={onOpenCamera}>
-          <Ionicons name="camera-outline" size={24} color={colors.white} />
+      <View style={styles.uploadNavSlot}>
+        <Pressable style={styles.uploadNavButton} onPress={onOpenCaptureActions}>
+          <Ionicons name="add" size={30} color={colors.white} />
         </Pressable>
-        <View style={styles.captureDivider} />
-        <Pressable style={styles.captureSecondaryButton} onPress={onOpenCaptureActions}>
-          <Ionicons name="chevron-down" size={22} color={colors.white} />
-        </Pressable>
+        <Text style={styles.uploadNavLabel}>Upload</Text>
       </View>
       <BottomTabItem
         active={activeTab === 'claims'}
-        label="Exp. Claims"
-        icon="document-text-outline"
-        activeIcon="document-text"
+        label="Reports"
+        icon="stats-chart-outline"
+        activeIcon="stats-chart"
         onPress={() => onSelect('claims')}
       />
       <BottomTabItem
         active={activeTab === 'more'}
-        label="More"
-        icon="ellipsis-horizontal"
-        activeIcon="ellipsis-horizontal"
+        label="Settings"
+        icon="settings-outline"
+        activeIcon="settings"
         onPress={() => onSelect('more')}
       />
     </View>
@@ -4938,6 +4933,19 @@ function CameraCapture({
   );
 }
 
+function EmptyOrbit({ icon }: { icon: keyof typeof Ionicons.glyphMap }) {
+  return (
+    <View style={styles.emptyOrbit}>
+      <View style={styles.emptyOrbitHalo} />
+      <View style={styles.emptyOrbitDotTop} />
+      <View style={styles.emptyOrbitDotBottom} />
+      <View style={styles.emptyOrbitCore}>
+        <Ionicons name={icon} size={34} color={colors.white} />
+      </View>
+    </View>
+  );
+}
+
 function ArchiveSheet({
   visible,
   target,
@@ -5388,8 +5396,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingHorizontal: 26,
-    paddingTop: 12,
-    paddingBottom: 18,
+    paddingTop: 16,
+    paddingBottom: 20,
+    backgroundColor: colors.tealDeep,
   },
   headerBrandBlock: {
     flexDirection: 'row',
@@ -5399,18 +5408,37 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   headerBrandMark: {
+    width: 42,
+    height: 42,
+  },
+  headerBrandMarkFrame: {
     width: 52,
     height: 52,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#020817',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  headerEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    color: '#80E5D6',
   },
   headerTitle: {
-    fontSize: 28,
+    marginTop: 2,
+    fontSize: 27,
     fontWeight: '700',
-    color: colors.nearBlack,
+    color: colors.white,
   },
   headerSubtitle: {
-    marginTop: 6,
-    fontSize: 16,
-    color: colors.nearBlack,
+    marginTop: 4,
+    fontSize: 15,
+    color: '#C9D7F1',
   },
   headerActions: {
     flexDirection: 'row',
@@ -5422,20 +5450,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 26,
-    paddingVertical: 18,
-    backgroundColor: colors.band,
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#E9F1F8',
   },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 14,
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: '#D6E4F1',
   },
   searchInput: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     color: colors.nearBlack,
+  },
+  searchFilterButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#CFF4EE',
   },
   content: {
     paddingBottom: 132,
@@ -5553,10 +5596,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 38,
-    paddingTop: 120,
+    paddingTop: 96,
   },
-  blankIconWrap: {
-    marginBottom: 26,
+  emptyOrbit: {
+    width: 156,
+    height: 156,
+    marginBottom: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyOrbitHalo: {
+    position: 'absolute',
+    width: 138,
+    height: 138,
+    borderRadius: 69,
+    backgroundColor: '#E0F6F2',
+    borderWidth: 1,
+    borderColor: '#A6E5DA',
+  },
+  emptyOrbitCore: {
+    width: 82,
+    height: 82,
+    borderRadius: 28,
+    backgroundColor: colors.tealDeep,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-8deg' }],
+    shadowColor: colors.tealDeep,
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 5,
+  },
+  emptyOrbitDotTop: {
+    position: 'absolute',
+    top: 8,
+    right: 29,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#2EC4A6',
+  },
+  emptyOrbitDotBottom: {
+    position: 'absolute',
+    bottom: 18,
+    left: 19,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2458D3',
   },
   blankTitle: {
     fontSize: 24,
@@ -5573,16 +5660,21 @@ const styles = StyleSheet.create({
   },
   blankButton: {
     marginTop: 34,
-    borderWidth: 1,
-    borderColor: colors.lightBorder,
-    borderRadius: 8,
-    paddingHorizontal: 38,
-    paddingVertical: 16,
+    minWidth: 196,
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingHorizontal: 28,
+    paddingVertical: 17,
+    backgroundColor: colors.tealDeep,
+    shadowColor: colors.tealDeep,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 4,
   },
   blankButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: colors.royalBlueDark,
+    color: colors.white,
   },
   claimsList: {
     paddingTop: 24,
@@ -5827,12 +5919,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 26,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 22,
     backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: '#DCE8F1',
+    shadowColor: colors.tealDeep,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 10,
   },
   bottomItem: {
     alignItems: 'center',
@@ -5841,7 +5939,7 @@ const styles = StyleSheet.create({
   },
   bottomLabel: {
     marginTop: 6,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.tabMuted,
     textAlign: 'center',
   },
@@ -5849,35 +5947,31 @@ const styles = StyleSheet.create({
     color: colors.nearBlack,
     fontWeight: '700',
   },
-  capturePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 108,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: colors.royalBlueDark,
-    marginHorizontal: 8,
-    marginTop: -6,
-  },
-  capturePrimaryButton: {
+  uploadNavSlot: {
     flex: 1,
-    height: '100%',
+    minWidth: 62,
+    alignItems: 'center',
+    marginTop: -36,
+  },
+  uploadNavButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 8,
+    backgroundColor: colors.tealDeep,
+    borderWidth: 5,
+    borderColor: '#E9F1F8',
+    shadowColor: colors.tealDeep,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 8,
   },
-  captureSecondaryButton: {
-    width: 34,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingRight: 4,
-  },
-  captureDivider: {
-    width: 1,
-    height: 26,
-    backgroundColor: 'rgba(255,255,255,0.65)',
+  uploadNavLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.tealDeep,
   },
   sheetBackdrop: {
     flex: 1,
