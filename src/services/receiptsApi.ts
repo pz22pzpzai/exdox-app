@@ -147,6 +147,7 @@ export async function fetchExpenseClaims() {
       total: claim.totalAmount,
       currency: claim.currency,
       documentIds: [],
+      documentCount: claim.documentCount,
       trip: claim.description ?? 'Expense claim',
       owner: `User ${claim.createdByUserId}`,
       submittedOn: claim.createdAt,

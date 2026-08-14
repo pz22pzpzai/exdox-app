@@ -1747,7 +1747,10 @@ export default function App() {
   );
 
   const claims = useMemo(
-    () => [...appState.claims].sort((left, right) => right.name.localeCompare(left.name)),
+    () =>
+      [...appState.claims].sort((left, right) =>
+        (right.submittedOn ?? '').localeCompare(left.submittedOn ?? ''),
+      ),
     [appState.claims],
   );
 
@@ -3271,13 +3274,16 @@ function ClaimsScreen({
     return (
       <BlankPanel
         icon="analytics-outline"
-        title="Nothing to report yet"
-        copy="Create a report when you are ready to group approved purchases."
-        actionLabel="Create a report"
+        title="No expense reports yet"
+        copy="Create a claim to group your purchases, then track it here once it is processed."
+        actionLabel="Create a claim"
         onAction={onCreateClaim}
       />
     );
   }
+
+  const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
+  const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
 
   return (
     <View style={styles.claimsList}>
@@ -3285,35 +3291,130 @@ function ClaimsScreen({
         <Ionicons name="add-circle-outline" size={20} color={colors.white} />
         <Text style={styles.claimCreateButtonText}>Create claim</Text>
       </Pressable>
-      {claims.map((claim) => (
-        <View key={claim.id} style={styles.claimCard}>
-          <View style={styles.claimRow}>
-            <View style={styles.claimRowLeft}>
-              <Text style={styles.claimName}>{claim.name}</Text>
-              <Text style={styles.claimMeta}>{claim.description || `${claim.documentIds.length} item linked`}</Text>
+
+      {processedClaims.length ? (
+        <>
+          <View style={styles.claimSectionHeading}>
+            <View>
+              <Text style={styles.claimSectionTitle}>Processed claims</Text>
+              <Text style={styles.claimSectionCopy}>Claims approved or paid by your employer.</Text>
             </View>
-            <Text style={styles.claimAmount}>
-              {claim.currency} {claim.total.toFixed(2)}
-            </Text>
+            <Ionicons name="checkmark-circle" size={22} color={colors.dotMint} />
           </View>
-          <View style={styles.claimAttachList}>
-            {claimableDocuments.length ? (
-              claimableDocuments.slice(0, 3).map((document) => (
-                <Pressable key={`${claim.id}-${document.id}`} style={styles.claimAttachButton} onPress={() => onAttachDocument(claim, document)}>
-                  <Text style={styles.claimAttachButtonText}>{`Add ${document.title}`}</Text>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.claimMeta}>No cash or personal cost items are ready to attach.</Text>
-            )}
+          {processedClaims.map((claim) => (
+            <ClaimReportCard key={claim.id} claim={claim} documents={documents} />
+          ))}
+        </>
+      ) : null}
+
+      {openClaims.length ? (
+        <>
+          <View style={styles.claimSectionHeading}>
+            <View>
+              <Text style={styles.claimSectionTitle}>Open claims</Text>
+              <Text style={styles.claimSectionCopy}>Claims waiting for an employer decision.</Text>
+            </View>
+            <Ionicons name="time-outline" size={22} color={colors.royalBlueDark} />
           </View>
+          {openClaims.map((claim) => (
+            <ClaimReportCard
+              key={claim.id}
+              claim={claim}
+              documents={documents}
+              claimableDocuments={claim.status === 'pending' ? claimableDocuments : []}
+              onAttachDocument={onAttachDocument}
+            />
+          ))}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function ClaimReportCard({
+  claim,
+  documents,
+  claimableDocuments = [],
+  onAttachDocument,
+}: {
+  claim: Claim;
+  documents: ExpenseDocument[];
+  claimableDocuments?: ExpenseDocument[];
+  onAttachDocument?: (claim: Claim, document: ExpenseDocument) => void;
+}) {
+  const linkedDocuments = documents.filter((document) => document.claimId === claim.id);
+  const itemCount = Math.max(claim.documentCount ?? 0, claim.documentIds.length, linkedDocuments.length);
+  const linkedTotal = linkedDocuments.reduce((total, document) => total + document.amount, 0);
+  const claimTotal = claim.total > 0 ? claim.total : linkedTotal;
+  const isPaid = claim.status === 'paid';
+  const isApproved = claim.status === 'approved';
+  const statusLabel = isPaid ? 'Paid' : isApproved ? 'Approved' : claim.status === 'rejected' ? 'Returned' : 'Awaiting review';
+  const statusDetail = isPaid ? 'Payment processed' : isApproved ? 'Ready for payment' : claim.status === 'rejected' ? 'Needs changes' : 'With your employer';
+
+  return (
+    <View style={styles.claimCard}>
+      <View style={styles.claimCardHeader}>
+        <View style={styles.claimRowLeft}>
+          <Text style={styles.claimName}>{claim.name}</Text>
+          <Text style={styles.claimMeta}>{claim.description || `${itemCount || 'No'} receipt${itemCount === 1 ? '' : 's'} in this claim`}</Text>
+          {claim.submittedOn ? <Text style={styles.claimDate}>{formatDate(claim.submittedOn)}</Text> : null}
         </View>
-      ))}
-      {documents
-        .filter((document) => document.claimId)
-        .map((document) => (
-          <DocumentRow key={document.id} document={document} onPress={() => undefined} compact />
-        ))}
+        <View style={[styles.claimStatusChip, isPaid ? styles.claimStatusPaid : isApproved ? styles.claimStatusApproved : styles.claimStatusOpen]}>
+          <Text
+            style={[
+              styles.claimStatusText,
+              isApproved && styles.claimStatusTextProcessed,
+              isPaid && styles.claimStatusTextPaid,
+            ]}
+          >
+            {statusLabel}
+          </Text>
+          <Text
+            style={[
+              styles.claimStatusDetail,
+              isApproved && styles.claimStatusTextProcessed,
+              isPaid && styles.claimStatusTextPaid,
+            ]}
+          >
+            {statusDetail}
+          </Text>
+        </View>
+      </View>
+
+      {linkedDocuments.length ? (
+        <View style={styles.claimReceiptList}>
+          {linkedDocuments.map((document) => (
+            <View key={document.id} style={styles.claimReceiptRow}>
+              <View style={styles.claimReceiptIcon}>
+                <Ionicons name="receipt-outline" size={17} color={colors.royalBlueDark} />
+              </View>
+              <View style={styles.claimReceiptCopy}>
+                <Text style={styles.claimReceiptName} numberOfLines={1}>{document.title}</Text>
+                <Text style={styles.claimReceiptDate}>{formatDate(document.date)}</Text>
+              </View>
+              <Text style={styles.claimReceiptAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.claimReceiptSummary}>{itemCount ? `${itemCount} receipt${itemCount === 1 ? '' : 's'} included in this claim.` : 'No receipts linked yet.'}</Text>
+      )}
+
+      {claimableDocuments.length && onAttachDocument ? (
+        <View style={styles.claimAttachList}>
+          <Text style={styles.claimAddPurchaseLabel}>Add a purchase</Text>
+          {claimableDocuments.slice(0, 3).map((document) => (
+            <Pressable key={`${claim.id}-${document.id}`} style={styles.claimAttachButton} onPress={() => onAttachDocument(claim, document)}>
+              <Text style={styles.claimAttachButtonText}>{`Add ${document.title}`}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.claimTotalRow}>
+        <Text style={styles.claimTotalLabel}>Claim total</Text>
+        <Text style={styles.claimTotalAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
+      </View>
     </View>
   );
 }
@@ -5795,10 +5896,34 @@ const styles = StyleSheet.create({
   },
   claimCard: {
     borderWidth: 1,
-    borderColor: colors.band,
+    borderColor: colors.lightBorder,
     borderRadius: 18,
     backgroundColor: colors.white,
     overflow: 'hidden',
+  },
+  claimSectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingHorizontal: 2,
+  },
+  claimSectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.nearBlack,
+  },
+  claimSectionCopy: {
+    marginTop: 3,
+    fontSize: 13,
+    color: colors.mutedText,
+  },
+  claimCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
   },
   claimRow: {
     flexDirection: 'row',
@@ -5811,10 +5936,105 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 16,
   },
+  claimDate: {
+    marginTop: 7,
+    color: colors.dateText,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  claimStatusChip: {
+    minWidth: 104,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  claimStatusApproved: {
+    backgroundColor: '#EAF8F4',
+    borderWidth: 1,
+    borderColor: colors.dotMint,
+  },
+  claimStatusPaid: {
+    backgroundColor: colors.royalBlueDark,
+  },
+  claimStatusOpen: {
+    backgroundColor: '#FFF4DE',
+    borderWidth: 1,
+    borderColor: colors.pillAmber,
+  },
+  claimStatusText: {
+    color: '#805A12',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  claimStatusDetail: {
+    marginTop: 2,
+    color: '#805A12',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  claimStatusTextProcessed: {
+    color: colors.royalBlueDark,
+  },
+  claimStatusTextPaid: {
+    color: colors.white,
+  },
+  claimReceiptList: {
+    borderTopWidth: 1,
+    borderTopColor: colors.band,
+  },
+  claimReceiptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.band,
+  },
+  claimReceiptIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#EEF4FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  claimReceiptCopy: {
+    flex: 1,
+  },
+  claimReceiptName: {
+    color: colors.nearBlack,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  claimReceiptDate: {
+    marginTop: 2,
+    color: colors.mutedText,
+    fontSize: 12,
+  },
+  claimReceiptAmount: {
+    color: colors.nearBlack,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  claimReceiptSummary: {
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+    color: colors.mutedText,
+    fontSize: 14,
+  },
   claimAttachList: {
+    borderTopWidth: 1,
+    borderTopColor: colors.band,
     paddingHorizontal: 18,
     paddingBottom: 18,
+    paddingTop: 14,
     gap: 8,
+  },
+  claimAddPurchaseLabel: {
+    color: colors.nearBlack,
+    fontSize: 14,
+    fontWeight: '800',
   },
   claimAttachButton: {
     borderRadius: 12,
@@ -6319,6 +6539,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.royalBlueDark,
+  },
+  claimTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.royalBlueDark,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+  },
+  claimTotalLabel: {
+    color: '#C8FAF1',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  claimTotalAmount: {
+    color: colors.white,
+    fontSize: 19,
+    fontWeight: '800',
   },
   documentSheetMeta: {
     marginTop: 6,

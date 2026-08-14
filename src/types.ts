@@ -74,6 +74,7 @@ export interface Claim {
   total: number;
   currency: string;
   documentIds: string[];
+  documentCount?: number;
   trip: string;
   owner: string;
   description?: string;
