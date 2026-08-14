@@ -58,7 +58,13 @@ import {
   Vehicle,
   WorkspaceContext,
 } from './src/types';
-import { clearAuthSession, loadAuthSession, saveAuthSession } from './src/utils/authStorage';
+import {
+  clearAuthSession,
+  loadAuthSession,
+  loadBiometricAuthSession,
+  saveAuthSession,
+  saveBiometricAuthSession,
+} from './src/utils/authStorage';
 import { buildDraftDocument, extractionLooksUnreadable } from './src/utils/documents';
 import { prepareCombinedImageDocumentForApp, prepareImportedImageForApp } from './src/utils/uploadAsset';
 import {
@@ -1132,6 +1138,30 @@ export default function App() {
     await syncCloudWorkspace(session);
   });
 
+  const signInWithFingerprint = useEffectEvent(async () => {
+    setAuthBusy(true);
+    try {
+      const session = await loadBiometricAuthSession();
+      if (!session) {
+        Alert.alert(
+          'Fingerprint sign-in unavailable',
+          'Sign in once with your email and password on this phone to enable fingerprint sign-in.',
+        );
+        return;
+      }
+
+      await activateSession(session);
+      setAuthPassword('');
+      setAuthFullName('');
+      setAuthOrganisationName('');
+    } catch (error) {
+      void recordError('fingerprint sign-in', error);
+      Alert.alert('Fingerprint sign-in failed', 'Use your email address and password to sign in instead.');
+    } finally {
+      setAuthBusy(false);
+    }
+  });
+
   const handleSignOut = useEffectEvent(async () => {
     setSessionToken(null);
     setAuthSession(null);
@@ -1139,7 +1169,7 @@ export default function App() {
     setAppState(seedState);
     setSelectedDocumentId(null);
     setActiveTab('costs');
-    await clearAuthSession();
+    await clearAuthSession({ preserveBiometric: true });
   });
 
   const syncDocumentToCloud = useEffectEvent(
@@ -1203,6 +1233,7 @@ export default function App() {
         });
 
       await activateSession(session);
+      void saveBiometricAuthSession(session);
       setAuthPassword('');
       setAuthFullName('');
       setAuthOrganisationName('');
@@ -2596,6 +2627,7 @@ export default function App() {
           onChangeEmail={setAuthEmail}
           onChangePassword={setAuthPassword}
           onSubmit={() => void submitAuth()}
+          onFingerprintSignIn={() => void signInWithFingerprint()}
         />
       </SafeAreaView>
     );
@@ -3302,6 +3334,7 @@ function AuthScreen({
   onChangeEmail,
   onChangePassword,
   onSubmit,
+  onFingerprintSignIn,
 }: {
   mode: 'login' | 'register' | 'reset';
   fullName: string;
@@ -3318,6 +3351,7 @@ function AuthScreen({
   onChangeEmail: (value: string) => void;
   onChangePassword: (value: string) => void;
   onSubmit: () => void;
+  onFingerprintSignIn: () => void;
 }) {
   return (
     <KeyboardAvoidingView
@@ -3413,9 +3447,19 @@ function AuthScreen({
             )}
           </Pressable>
           {mode === 'login' ? (
-            <Pressable style={styles.authSecondaryLink} onPress={onOpenReset}>
-              <Text style={styles.authSecondaryLinkText}>Forgot password?</Text>
-            </Pressable>
+            <>
+              <Pressable
+                style={[styles.biometricButton, busy && styles.authButtonDisabled]}
+                onPress={onFingerprintSignIn}
+                disabled={busy}
+              >
+                <Ionicons name="finger-print-outline" size={21} color={colors.royalBlueDark} />
+                <Text style={styles.biometricButtonText}>Sign in with fingerprint</Text>
+              </Pressable>
+              <Pressable style={styles.authSecondaryLink} onPress={onOpenReset}>
+                <Text style={styles.authSecondaryLinkText}>Forgot password?</Text>
+              </Pressable>
+            </>
           ) : null}
         </View>
       </ScrollView>
@@ -5465,6 +5509,23 @@ const styles = StyleSheet.create({
     fontSize: 27,
     fontWeight: '700',
     color: colors.white,
+  },
+  biometricButton: {
+    minHeight: 48,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.royalBlueDark,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#EEF4FF',
+  },
+  biometricButtonText: {
+    color: colors.royalBlueDark,
+    fontSize: 15,
+    fontWeight: '700',
   },
   headerSubtitle: {
     marginTop: 4,
