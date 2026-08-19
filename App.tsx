@@ -3270,6 +3270,8 @@ function ClaimsScreen({
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
 }) {
+  const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
+
   if (!claims.length) {
     return (
       <BlankPanel
@@ -3284,6 +3286,17 @@ function ClaimsScreen({
 
   const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
   const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
+  const groupByMonth = (items: Claim[]) => {
+    const groups = new Map<string, Claim[]>();
+    items.forEach((claim) => {
+      const month = claim.submittedOn ? formatMonthYear(claim.submittedOn) : 'Earlier reports';
+      groups.set(month, [...(groups.get(month) ?? []), claim]);
+    });
+    return [...groups.entries()];
+  };
+  const toggleClaim = (claimId: string) => {
+    setExpandedClaimId((current) => (current === claimId ? null : claimId));
+  };
 
   return (
     <View style={styles.claimsList}>
@@ -3301,8 +3314,19 @@ function ClaimsScreen({
             </View>
             <Ionicons name="checkmark-circle" size={22} color={colors.dotMint} />
           </View>
-          {processedClaims.map((claim) => (
-            <ClaimReportCard key={claim.id} claim={claim} documents={documents} />
+          {groupByMonth(processedClaims).map(([month, monthClaims]) => (
+            <View key={`processed-${month}`} style={styles.claimMonthGroup}>
+              <Text style={styles.claimMonthHeading}>{month}</Text>
+              {monthClaims.map((claim) => (
+                <ClaimReportCard
+                  key={claim.id}
+                  claim={claim}
+                  documents={documents}
+                  expanded={expandedClaimId === claim.id}
+                  onToggle={() => toggleClaim(claim.id)}
+                />
+              ))}
+            </View>
           ))}
         </>
       ) : null}
@@ -3316,14 +3340,21 @@ function ClaimsScreen({
             </View>
             <Ionicons name="time-outline" size={22} color={colors.royalBlueDark} />
           </View>
-          {openClaims.map((claim) => (
-            <ClaimReportCard
-              key={claim.id}
-              claim={claim}
-              documents={documents}
-              claimableDocuments={claim.status === 'pending' ? claimableDocuments : []}
-              onAttachDocument={onAttachDocument}
-            />
+          {groupByMonth(openClaims).map(([month, monthClaims]) => (
+            <View key={`open-${month}`} style={styles.claimMonthGroup}>
+              <Text style={styles.claimMonthHeading}>{month}</Text>
+              {monthClaims.map((claim) => (
+                <ClaimReportCard
+                  key={claim.id}
+                  claim={claim}
+                  documents={documents}
+                  expanded={expandedClaimId === claim.id}
+                  onToggle={() => toggleClaim(claim.id)}
+                  claimableDocuments={claim.status === 'pending' ? claimableDocuments : []}
+                  onAttachDocument={onAttachDocument}
+                />
+              ))}
+            </View>
           ))}
         </>
       ) : null}
@@ -3334,11 +3365,15 @@ function ClaimsScreen({
 function ClaimReportCard({
   claim,
   documents,
+  expanded,
+  onToggle,
   claimableDocuments = [],
   onAttachDocument,
 }: {
   claim: Claim;
   documents: ExpenseDocument[];
+  expanded: boolean;
+  onToggle: () => void;
   claimableDocuments?: ExpenseDocument[];
   onAttachDocument?: (claim: Claim, document: ExpenseDocument) => void;
 }) {
@@ -3353,11 +3388,18 @@ function ClaimReportCard({
 
   return (
     <View style={styles.claimCard}>
-      <View style={styles.claimCardHeader}>
+      <Pressable
+        style={[styles.claimCardHeader, expanded && styles.claimCardHeaderExpanded]}
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${claim.name}, ${formatCurrency(claimTotal, claim.currency)}, ${statusLabel}`}
+      >
         <View style={styles.claimRowLeft}>
           <Text style={styles.claimName}>{claim.name}</Text>
-          <Text style={styles.claimMeta}>{claim.description || `${itemCount || 'No'} receipt${itemCount === 1 ? '' : 's'} in this claim`}</Text>
-          {claim.submittedOn ? <Text style={styles.claimDate}>{formatDate(claim.submittedOn)}</Text> : null}
+          <Text style={styles.claimMeta}>
+            {`${itemCount || 'No'} receipt${itemCount === 1 ? '' : 's'}${claim.submittedOn ? ` • ${formatDate(claim.submittedOn)}` : ''}`}
+          </Text>
         </View>
         <View style={[styles.claimStatusChip, isPaid ? styles.claimStatusPaid : isApproved ? styles.claimStatusApproved : styles.claimStatusOpen]}>
           <Text
@@ -3369,19 +3411,29 @@ function ClaimReportCard({
           >
             {statusLabel}
           </Text>
-          <Text
-            style={[
-              styles.claimStatusDetail,
-              isApproved && styles.claimStatusTextProcessed,
-              isPaid && styles.claimStatusTextPaid,
-            ]}
-          >
-            {statusDetail}
-          </Text>
+          {expanded ? (
+            <Text
+              style={[
+                styles.claimStatusDetail,
+                isApproved && styles.claimStatusTextProcessed,
+                isPaid && styles.claimStatusTextPaid,
+              ]}
+            >
+              {statusDetail}
+            </Text>
+          ) : null}
         </View>
-      </View>
+        <View style={styles.claimListTotal}>
+          <Text style={styles.claimListAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={19} color={colors.royalBlueDark} />
+        </View>
+      </Pressable>
 
-      {linkedDocuments.length ? (
+      {expanded ? (
+        <View style={styles.claimExpandedContent}>
+          {claim.description ? <Text style={styles.claimDescription}>{claim.description}</Text> : null}
+          <Text style={styles.claimItemsHeading}>Items in this claim</Text>
+          {linkedDocuments.length ? (
         <View style={styles.claimReceiptList}>
           {linkedDocuments.map((document) => (
             <View key={document.id} style={styles.claimReceiptRow}>
@@ -3396,25 +3448,27 @@ function ClaimReportCard({
             </View>
           ))}
         </View>
-      ) : (
-        <Text style={styles.claimReceiptSummary}>{itemCount ? `${itemCount} receipt${itemCount === 1 ? '' : 's'} included in this claim.` : 'No receipts linked yet.'}</Text>
-      )}
+          ) : (
+            <Text style={styles.claimReceiptSummary}>{itemCount ? `${itemCount} receipt${itemCount === 1 ? '' : 's'} included in this claim.` : 'No receipts linked yet.'}</Text>
+          )}
 
-      {claimableDocuments.length && onAttachDocument ? (
-        <View style={styles.claimAttachList}>
-          <Text style={styles.claimAddPurchaseLabel}>Add a purchase</Text>
-          {claimableDocuments.slice(0, 3).map((document) => (
-            <Pressable key={`${claim.id}-${document.id}`} style={styles.claimAttachButton} onPress={() => onAttachDocument(claim, document)}>
-              <Text style={styles.claimAttachButtonText}>{`Add ${document.title}`}</Text>
-            </Pressable>
-          ))}
+          {claimableDocuments.length && onAttachDocument ? (
+            <View style={styles.claimAttachList}>
+              <Text style={styles.claimAddPurchaseLabel}>Add a purchase</Text>
+              {claimableDocuments.slice(0, 3).map((document) => (
+                <Pressable key={`${claim.id}-${document.id}`} style={styles.claimAttachButton} onPress={() => onAttachDocument(claim, document)}>
+                  <Text style={styles.claimAttachButtonText}>{`Add ${document.title}`}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.claimTotalRow}>
+            <Text style={styles.claimTotalLabel}>Claim total</Text>
+            <Text style={styles.claimTotalAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
+          </View>
         </View>
       ) : null}
-
-      <View style={styles.claimTotalRow}>
-        <Text style={styles.claimTotalLabel}>Claim total</Text>
-        <Text style={styles.claimTotalAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
-      </View>
     </View>
   );
 }
@@ -5927,10 +5981,23 @@ const styles = StyleSheet.create({
   },
   claimCardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 16,
+  },
+  claimCardHeaderExpanded: {
+    backgroundColor: '#F4F8FC',
+  },
+  claimMonthGroup: {
+    gap: 8,
+  },
+  claimMonthHeading: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 4,
+    color: colors.royalBlueDark,
+    fontSize: 16,
+    fontWeight: '800',
   },
   claimRow: {
     flexDirection: 'row',
@@ -5979,6 +6046,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  claimListTotal: {
+    alignItems: 'flex-end',
+    gap: 5,
+    marginLeft: 10,
+  },
+  claimListAmount: {
+    color: colors.royalBlueDark,
+    fontSize: 15,
+    fontWeight: '800',
+  },
   claimStatusTextProcessed: {
     color: colors.royalBlueDark,
   },
@@ -5988,6 +6065,25 @@ const styles = StyleSheet.create({
   claimReceiptList: {
     borderTopWidth: 1,
     borderTopColor: colors.band,
+  },
+  claimExpandedContent: {
+    borderTopWidth: 1,
+    borderTopColor: colors.band,
+  },
+  claimDescription: {
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    color: colors.mutedText,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  claimItemsHeading: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 8,
+    color: colors.nearBlack,
+    fontSize: 14,
+    fontWeight: '800',
   },
   claimReceiptRow: {
     flexDirection: 'row',
