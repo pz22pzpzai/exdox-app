@@ -4137,20 +4137,27 @@ function FilterSheet({
         <View style={styles.panelSheet}>
           <View style={styles.documentSheetHandle} />
           <Text style={styles.panelTitle}>Sort and filter</Text>
-          <Text style={styles.panelSectionTitle}>Status</Text>
-          {statusFilterOptions.map((option) => (
-            <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectStatus(option.value)}>
-              <Text style={styles.panelOptionText}>{option.label}</Text>
-              {statusFilter === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
-            </Pressable>
-          ))}
-          <Text style={styles.panelSectionTitle}>Sort</Text>
-          {sortOptions.map((option) => (
-            <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectSort(option.value)}>
-              <Text style={styles.panelOptionText}>{option.label}</Text>
-              {sortMode === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
-            </Pressable>
-          ))}
+          <ScrollView
+            style={styles.filterSheetScroll}
+            contentContainerStyle={styles.filterSheetContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            <Text style={styles.panelSectionTitle}>Status</Text>
+            {statusFilterOptions.map((option) => (
+              <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectStatus(option.value)}>
+                <Text style={styles.panelOptionText}>{option.label}</Text>
+                {statusFilter === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
+              </Pressable>
+            ))}
+            <Text style={styles.panelSectionTitle}>Sort</Text>
+            {sortOptions.map((option) => (
+              <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelectSort(option.value)}>
+                <Text style={styles.panelOptionText}>{option.label}</Text>
+                {sortMode === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -7204,6 +7211,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.mutedText,
     textTransform: 'uppercase',
+  },
+  filterSheetScroll: {
+    flexShrink: 1,
+  },
+  filterSheetContent: {
+    paddingBottom: 8,
   },
   panelOptionRow: {
     flexDirection: 'row',
