@@ -3804,7 +3804,7 @@ function BottomNav({
       </View>
       <BottomTabItem
         active={activeTab === 'claims'}
-        label="Expense claims"
+        label="Exp. claims"
         icon="receipt-outline"
         activeIcon="receipt"
         onPress={() => onSelect('claims')}
