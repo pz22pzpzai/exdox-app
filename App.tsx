@@ -41,7 +41,7 @@ import {
   fetchExpenseClaims,
   updateCloudReceipt,
 } from './src/services/receiptsApi';
-import { fetchOrganisationSettings, saveOrganisationSettings } from './src/services/settingsApi';
+import { fetchOrganisationSettings } from './src/services/settingsApi';
 import { setSessionToken } from './src/services/session';
 import { colors, radius, spacing } from './src/theme';
 import {
@@ -2718,7 +2718,6 @@ export default function App() {
               accountEmail={authSession.user.email}
               role={authSession.user.role}
               settings={appState.settings}
-              organisationSettings={appState.organisationSettings}
               errorLogCount={errorLogs.length}
               onUpdateSetting={updateSettings}
               onOpenTheme={() => setThemeVisible(true)}
@@ -2933,7 +2932,6 @@ export default function App() {
           visible={Boolean(settingsPanelTarget)}
           target={settingsPanelTarget}
           role={authSession.user.role}
-          organisationSettings={appState.organisationSettings}
           inboundEmailAddress={inboundEmailAddress}
           analyticsSummary={analyticsSummary}
           vatTrackingEnabled={vatTrackingEnabled}
@@ -2942,51 +2940,6 @@ export default function App() {
           vehicleRegistrationInput={vehicleRegistrationInput}
           editingVehicleId={editingVehicleId}
           onClose={() => setSettingsPanelTarget(null)}
-          onSaveOrganisationSettings={async (nextSettings) => {
-            setAppState((current) => ({
-              ...current,
-              organisationSettings: current.organisationSettings
-                ? {
-                    ...current.organisationSettings,
-                    ...nextSettings,
-                  }
-                : current.organisationSettings,
-              documents: current.documents.map((document) =>
-                nextSettings.isVatRegistered
-                  ? document
-                  : {
-                      ...document,
-                      ...normalizeVatDisabledValues(document),
-                    },
-              ),
-            }));
-            void (async () => {
-              try {
-                const savedSettings = await saveOrganisationSettings(nextSettings);
-                setAppState((current) => ({
-                  ...current,
-                  organisationSettings: savedSettings,
-                }));
-                if (authSession) {
-                  await syncCloudWorkspace(authSession);
-                }
-              } catch (error) {
-                void recordError('organisation settings save', error);
-                if (authSession) {
-                  try {
-                    const restoredSettings = await fetchOrganisationSettings();
-                    setAppState((current) => ({
-                      ...current,
-                      organisationSettings: restoredSettings,
-                    }));
-                    await syncCloudWorkspace(authSession);
-                  } catch (restoreError) {
-                    void recordError('organisation settings restore', restoreError);
-                  }
-                }
-              }
-            })();
-          }}
           onExport={() => void handleTeamExport()}
           onChangeVehicleName={setVehicleNameInput}
           onChangeVehicleRegistration={setVehicleRegistrationInput}
@@ -3627,7 +3580,6 @@ function SettingsScreen({
   accountEmail,
   role,
   settings,
-  organisationSettings,
   errorLogCount,
   onUpdateSetting,
   onOpenTheme,
@@ -3639,7 +3591,6 @@ function SettingsScreen({
   accountEmail: string;
   role: 'Business_Admin' | 'Standard_Employee';
   settings: UserSettings;
-  organisationSettings: OrganisationSettings | null;
   errorLogCount: number;
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   onOpenTheme: () => void;
@@ -3681,15 +3632,6 @@ function SettingsScreen({
       />
 
       <View style={styles.settingsGroup}>
-        {role === 'Business_Admin' && organisationSettings ? (
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabelWrap}>
-              <Ionicons name="receipt-outline" size={22} color={colors.nearBlack} />
-              <Text style={styles.settingLabel}>Business is VAT Registered</Text>
-            </View>
-            <Text style={styles.settingValue}>{organisationSettings.isVatRegistered ? 'On' : 'Off'}</Text>
-          </View>
-        ) : null}
         <SettingToggleRow
           icon="camera-outline"
           label="Open on camera"
@@ -4344,7 +4286,6 @@ function SettingsPanelSheet({
   visible,
   target,
   role,
-  organisationSettings,
   inboundEmailAddress,
   analyticsSummary,
   vatTrackingEnabled,
@@ -4353,7 +4294,6 @@ function SettingsPanelSheet({
   vehicleRegistrationInput,
   editingVehicleId,
   onClose,
-  onSaveOrganisationSettings,
   onExport,
   onChangeVehicleName,
   onChangeVehicleRegistration,
@@ -4364,7 +4304,6 @@ function SettingsPanelSheet({
   visible: boolean;
   target: SettingsPanelTarget | null;
   role: 'Business_Admin' | 'Standard_Employee';
-  organisationSettings: OrganisationSettings | null;
   inboundEmailAddress: string;
   analyticsSummary: { total: number; vatTotal: number; reviewCount: number; submittedCount: number };
   vatTrackingEnabled: boolean;
@@ -4373,9 +4312,6 @@ function SettingsPanelSheet({
   vehicleRegistrationInput: string;
   editingVehicleId: string | null;
   onClose: () => void;
-  onSaveOrganisationSettings: (
-    nextSettings: Pick<OrganisationSettings, 'isVatRegistered' | 'defaultTaxRate'>,
-  ) => Promise<void>;
   onExport: () => void;
   onChangeVehicleName: (value: string) => void;
   onChangeVehicleRegistration: (value: string) => void;
@@ -4386,8 +4322,6 @@ function SettingsPanelSheet({
   if (!visible || !target) {
     return null;
   }
-
-  const vatToggleDisabled = role !== 'Business_Admin' || !organisationSettings;
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
@@ -4403,31 +4337,8 @@ function SettingsPanelSheet({
                   ? 'Admin access is active on this workspace.'
                   : 'This workspace is signed in without business admin permissions.'}
               </Text>
-              <View style={styles.settingRow}>
-                <View style={styles.settingLabelWrap}>
-                  <Ionicons name="receipt-outline" size={22} color={colors.nearBlack} />
-                  <Text style={styles.settingLabel}>Business is VAT Registered</Text>
-                </View>
-                <Switch
-                  disabled={vatToggleDisabled}
-                  value={organisationSettings?.isVatRegistered !== false}
-                  onValueChange={(value) => {
-                    if (!organisationSettings) {
-                      return;
-                    }
-                    void onSaveOrganisationSettings({
-                      isVatRegistered: value,
-                      defaultTaxRate: organisationSettings.defaultTaxRate,
-                    });
-                  }}
-                  trackColor={{ false: colors.softBlueGrey, true: colors.softBlueGrey }}
-                  thumbColor={colors.nearBlack}
-                />
-              </View>
               <Text style={styles.panelMuted}>
-                {organisationSettings?.isVatRegistered !== false
-                  ? `Net, VAT, and Total stay visible. Default tax rate: ${organisationSettings?.defaultTaxRate ?? '20% Standard'}.`
-                  : 'VAT tracking is off, so the app now works in gross-total mode and VAT exports as 0.00.'}
+                Workspace VAT settings are managed by a business administrator on the Exdox website.
               </Text>
             </>
           ) : null}
