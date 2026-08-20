@@ -78,8 +78,8 @@ import {
   saveStoredState,
 } from './src/utils/storage';
 
-type MainTab = 'costs' | 'sales' | 'claims' | 'more';
-type MoreSheetTarget = 'menu' | 'capture_actions';
+type MainTab = 'costs' | 'sales' | 'claims' | 'reports' | 'more';
+type MoreSheetTarget = 'capture_actions';
 type CameraCaptureMode = 'single' | 'multiple' | 'combine';
 type ArchiveTarget = 'cost' | 'sales';
 type SettingsPanelTarget =
@@ -90,7 +90,8 @@ type SettingsPanelTarget =
   | 'analytics'
   | 'team_exports'
   | 'vault'
-  | 'team_admin';
+  | 'team_admin'
+  | 'archive';
 type StatusFilter = 'all' | ExpenseDocument['status'];
 type SortMode = 'newest' | 'oldest' | 'amount_high' | 'amount_low';
 type ThemeOption = UserSettings['theme'];
@@ -914,7 +915,6 @@ export default function App() {
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
-  const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
   const [settingsPanelTarget, setSettingsPanelTarget] = useState<SettingsPanelTarget | null>(null);
@@ -929,8 +929,6 @@ export default function App() {
   const [themeVisible, setThemeVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
-  const [bulkSelectionEnabled, setBulkSelectionEnabled] = useState(false);
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [vehicleNameInput, setVehicleNameInput] = useState('');
   const [vehicleRegistrationInput, setVehicleRegistrationInput] = useState('');
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
@@ -1603,11 +1601,6 @@ export default function App() {
   }, [cameraVisible, pendingGalleryOpen, recordDiagnostic]);
 
   useEffect(() => {
-    setBulkSelectionEnabled(false);
-    setSelectedDocumentIds([]);
-  }, [activeTab]);
-
-  useEffect(() => {
     const errorUtils = (
       globalThis as typeof globalThis & {
         ErrorUtils?: {
@@ -1810,8 +1803,10 @@ export default function App() {
       : activeTab === 'sales'
         ? 'Sales'
         : activeTab === 'claims'
-          ? 'Reports'
-          : 'Settings';
+          ? 'Expense claims'
+          : activeTab === 'reports'
+            ? 'Reports'
+            : 'Settings';
 
   const syncCaptureType = () => {
     setCaptureType(activeTab === 'sales' ? 'invoice' : 'receipt');
@@ -2434,7 +2429,6 @@ export default function App() {
   });
 
   const handleRefreshFeed = useEffectEvent(async () => {
-    setHeaderMenuVisible(false);
     if (!authSession) {
       return;
     }
@@ -2444,52 +2438,6 @@ export default function App() {
       void recordError('refresh feed', error);
     }
   });
-
-  const handleOpenBulkSelection = () => {
-    setHeaderMenuVisible(false);
-    setBulkSelectionEnabled(true);
-    setSelectedDocumentIds([]);
-  };
-
-  const toggleBulkDocumentSelection = (documentId: string) => {
-    setSelectedDocumentIds((current) =>
-      current.includes(documentId) ? current.filter((id) => id !== documentId) : [...current, documentId],
-    );
-  };
-
-  const clearBulkSelection = () => {
-    setBulkSelectionEnabled(false);
-    setSelectedDocumentIds([]);
-  };
-
-  const handleBulkMarkReviewed = useEffectEvent(async () => {
-    const targets = appState.documents.filter((document) => selectedDocumentIds.includes(document.id));
-    for (const document of targets) {
-      await updateDocumentStatus(document.id, 'ready_to_submit');
-    }
-    clearBulkSelection();
-  });
-
-  const handleBulkDelete = () => {
-    const targets = appState.documents.filter((document) => selectedDocumentIds.includes(document.id));
-    if (!targets.length) {
-      return;
-    }
-
-    Alert.alert('Delete selected items', `Delete ${targets.length} selected item${targets.length === 1 ? '' : 's'}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          targets.forEach((document) => {
-            void deleteDocument(document);
-          });
-          clearBulkSelection();
-        },
-      },
-    ]);
-  };
 
   const handleOpenClaimComposer = () => {
     setClaimTitleInput(`Expense Claim ${new Date().toLocaleDateString('en-GB')}`);
@@ -2645,7 +2593,8 @@ export default function App() {
           subtitle={authSession.user.fullName || authSession.user.email}
           notificationCount={processingAlerts.length}
           onOpenNotifications={() => setNotificationsVisible(true)}
-          onOpenMore={() => setHeaderMenuVisible(true)}
+          onRefresh={() => void handleRefreshFeed()}
+          onOpenSettings={() => setActiveTab('more')}
         />
 
         {cloudSyncState !== 'idle' ? (
@@ -2676,7 +2625,7 @@ export default function App() {
           </View>
         ) : null}
 
-        {(activeTab === 'costs' || activeTab === 'sales' || activeTab === 'claims') && (
+        {(activeTab === 'costs' || activeTab === 'sales') && (
           <SearchBand value={search} onChangeText={setSearch} onOpenFilter={() => setFilterVisible(true)} />
         )}
 
@@ -2685,9 +2634,6 @@ export default function App() {
             <CostsScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
-              bulkSelectionEnabled={bulkSelectionEnabled}
-              selectedDocumentIds={selectedDocumentIds}
-              onToggleSelect={toggleBulkDocumentSelection}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
@@ -2696,9 +2642,6 @@ export default function App() {
             <SalesScreen
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
-              bulkSelectionEnabled={bulkSelectionEnabled}
-              selectedDocumentIds={selectedDocumentIds}
-              onToggleSelect={toggleBulkDocumentSelection}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
               onAddDocument={openCapture}
             />
@@ -2708,6 +2651,17 @@ export default function App() {
               claims={claims}
               documents={appState.documents}
               claimableDocuments={claimableDocuments}
+              mode="claims"
+              onCreateClaim={handleOpenClaimComposer}
+              onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
+            />
+          )}
+          {activeTab === 'reports' && (
+            <ClaimsScreen
+              claims={claims}
+              documents={appState.documents}
+              claimableDocuments={[]}
+              mode="reports"
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
             />
@@ -2722,6 +2676,7 @@ export default function App() {
               onUpdateSetting={updateSettings}
               onOpenTheme={() => setThemeVisible(true)}
               onOpenPanel={setSettingsPanelTarget}
+              onOpenArchive={() => setSettingsPanelTarget('archive')}
               onOpenErrorLog={() => setErrorLogVisible(true)}
               onSignOut={() => void handleSignOut()}
             />
@@ -2749,20 +2704,7 @@ export default function App() {
 
         <MoreSheet
           target={sheetTarget}
-          isAdmin={Boolean(isAdmin)}
           onClose={() => setSheetTarget(null)}
-          onOpenSettings={() => {
-            setActiveTab('more');
-            setSheetTarget(null);
-          }}
-          onOpenVault={() => {
-            setSettingsPanelTarget('vault');
-            setSheetTarget(null);
-          }}
-          onOpenTeamAdmin={() => {
-            setSettingsPanelTarget('team_admin');
-            setSheetTarget(null);
-          }}
           onOpenCamera={() => {
             setSheetTarget(null);
             void handleUseCamera();
@@ -2847,23 +2789,6 @@ export default function App() {
           }}
         />
 
-        <HeaderMenuSheet
-          visible={headerMenuVisible}
-          activeTab={activeTab}
-          bulkSelectionEnabled={bulkSelectionEnabled}
-          selectedCount={selectedDocumentIds.length}
-          onClose={() => setHeaderMenuVisible(false)}
-          onOpenArchive={() => {
-            setHeaderMenuVisible(false);
-            setArchiveTarget(activeTab === 'sales' ? 'sales' : 'cost');
-          }}
-          onSelectMultiple={handleOpenBulkSelection}
-          onRefresh={() => void handleRefreshFeed()}
-          onBulkMarkReviewed={() => void handleBulkMarkReviewed()}
-          onBulkDelete={handleBulkDelete}
-          onClearSelection={clearBulkSelection}
-        />
-
         <ArchiveSheet
           visible={Boolean(archiveTarget)}
           target={archiveTarget}
@@ -2940,6 +2865,10 @@ export default function App() {
           vehicleRegistrationInput={vehicleRegistrationInput}
           editingVehicleId={editingVehicleId}
           onClose={() => setSettingsPanelTarget(null)}
+          onOpenArchive={(target) => {
+            setSettingsPanelTarget(null);
+            setArchiveTarget(target);
+          }}
           onExport={() => void handleTeamExport()}
           onChangeVehicleName={setVehicleNameInput}
           onChangeVehicleRegistration={setVehicleRegistrationInput}
@@ -3044,13 +2973,15 @@ function TopHeader({
   subtitle,
   notificationCount,
   onOpenNotifications,
-  onOpenMore,
+  onRefresh,
+  onOpenSettings,
 }: {
   title: string;
   subtitle: string;
   notificationCount: number;
   onOpenNotifications: () => void;
-  onOpenMore: () => void;
+  onRefresh: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <View style={styles.header}>
@@ -3073,8 +3004,11 @@ function TopHeader({
             </View>
           ) : null}
         </Pressable>
-        <Pressable onPress={onOpenMore} hitSlop={8}>
-          <Ionicons name="ellipsis-vertical" size={22} color={colors.white} />
+        <Pressable onPress={onRefresh} hitSlop={8} style={styles.headerIconButton} accessibilityLabel="Refresh workspace">
+          <Ionicons name="refresh-outline" size={23} color={colors.white} />
+        </Pressable>
+        <Pressable onPress={onOpenSettings} hitSlop={8} style={styles.headerIconButton} accessibilityLabel="Open settings">
+          <Ionicons name="settings-outline" size={22} color={colors.white} />
         </Pressable>
       </View>
     </View>
@@ -3112,17 +3046,11 @@ function SearchBand({
 function CostsScreen({
   documents,
   onOpenDocument,
-  bulkSelectionEnabled,
-  selectedDocumentIds,
-  onToggleSelect,
   onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
-  bulkSelectionEnabled: boolean;
-  selectedDocumentIds: string[];
-  onToggleSelect: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
@@ -3151,9 +3079,7 @@ function CostsScreen({
       renderItem={({ item }) => (
         <DocumentRow
           document={item}
-          selected={selectedDocumentIds.includes(item.id)}
-          selectionMode={bulkSelectionEnabled}
-          onPress={() => (bulkSelectionEnabled ? onToggleSelect(item.id) : onOpenDocument(item.id))}
+          onPress={() => onOpenDocument(item.id)}
           onStatusPress={() => onOpenDocument(item.id)}
           onLongPress={() => onDeleteDocument(item)}
         />
@@ -3165,17 +3091,11 @@ function CostsScreen({
 function SalesScreen({
   documents,
   onOpenDocument,
-  bulkSelectionEnabled,
-  selectedDocumentIds,
-  onToggleSelect,
   onDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
-  bulkSelectionEnabled: boolean;
-  selectedDocumentIds: string[];
-  onToggleSelect: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
   onAddDocument: () => void;
 }) {
@@ -3199,9 +3119,7 @@ function SalesScreen({
       renderItem={({ item }) => (
         <DocumentRow
           document={item}
-          selected={selectedDocumentIds.includes(item.id)}
-          selectionMode={bulkSelectionEnabled}
-          onPress={() => (bulkSelectionEnabled ? onToggleSelect(item.id) : onOpenDocument(item.id))}
+          onPress={() => onOpenDocument(item.id)}
           onStatusPress={() => onOpenDocument(item.id)}
           onLongPress={() => onDeleteDocument(item)}
         />
@@ -3214,31 +3132,39 @@ function ClaimsScreen({
   claims,
   documents,
   claimableDocuments,
+  mode,
   onCreateClaim,
   onAttachDocument,
 }: {
   claims: Claim[];
   documents: ExpenseDocument[];
   claimableDocuments: ExpenseDocument[];
+  mode: 'claims' | 'reports';
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
 }) {
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
 
-  if (!claims.length) {
+  const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
+  const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
+  const visibleClaims = mode === 'reports' ? processedClaims : openClaims;
+
+  if (!visibleClaims.length) {
     return (
       <BlankPanel
-        icon="analytics-outline"
-        title="No expense reports yet"
-        copy="Create a claim to group your purchases, then track it here once it is processed."
-        actionLabel="Create a claim"
-        onAction={onCreateClaim}
+        icon={mode === 'reports' ? 'analytics-outline' : 'receipt-outline'}
+        title={mode === 'reports' ? 'No processed reports yet' : 'No expense claims yet'}
+        copy={
+          mode === 'reports'
+            ? 'Approved and paid claims will appear here once your employer has processed them.'
+            : 'Create a claim to group your purchases before submitting them to your employer.'
+        }
+        actionLabel={mode === 'claims' ? 'Create a claim' : undefined}
+        onAction={mode === 'claims' ? onCreateClaim : undefined}
       />
     );
   }
 
-  const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
-  const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
   const groupByMonth = (items: Claim[]) => {
     const groups = new Map<string, Claim[]>();
     items.forEach((claim) => {
@@ -3253,12 +3179,14 @@ function ClaimsScreen({
 
   return (
     <View style={styles.claimsList}>
-      <Pressable style={styles.claimCreateButton} onPress={onCreateClaim}>
-        <Ionicons name="add-circle-outline" size={20} color={colors.white} />
-        <Text style={styles.claimCreateButtonText}>Create claim</Text>
-      </Pressable>
+      {mode === 'claims' ? (
+        <Pressable style={styles.claimCreateButton} onPress={onCreateClaim}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.white} />
+          <Text style={styles.claimCreateButtonText}>Create claim</Text>
+        </Pressable>
+      ) : null}
 
-      {processedClaims.length ? (
+      {mode === 'reports' && processedClaims.length ? (
         <>
           <View style={styles.claimSectionHeading}>
             <View>
@@ -3284,7 +3212,7 @@ function ClaimsScreen({
         </>
       ) : null}
 
-      {openClaims.length ? (
+      {mode === 'claims' && openClaims.length ? (
         <>
           <View style={styles.claimSectionHeading}>
             <View>
@@ -3584,6 +3512,7 @@ function SettingsScreen({
   onUpdateSetting,
   onOpenTheme,
   onOpenPanel,
+  onOpenArchive,
   onOpenErrorLog,
   onSignOut,
 }: {
@@ -3595,6 +3524,7 @@ function SettingsScreen({
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   onOpenTheme: () => void;
   onOpenPanel: (target: SettingsPanelTarget) => void;
+  onOpenArchive: () => void;
   onOpenErrorLog: () => void;
   onSignOut: () => void;
 }) {
@@ -3630,6 +3560,7 @@ function SettingsScreen({
         label={`Error log${errorLogCount ? ` (${errorLogCount})` : ''}`}
         onPress={onOpenErrorLog}
       />
+      <SettingsButton icon="archive-outline" label="Archive" onPress={onOpenArchive} />
 
       <View style={styles.settingsGroup}>
         <SettingToggleRow
@@ -3756,16 +3687,12 @@ const DocumentRow = memo(function DocumentRow({
   onStatusPress,
   onLongPress,
   compact = false,
-  selectionMode = false,
-  selected = false,
 }: {
   document: ExpenseDocument;
   onPress: () => void;
   onStatusPress?: () => void;
   onLongPress?: () => void;
   compact?: boolean;
-  selectionMode?: boolean;
-  selected?: boolean;
 }) {
   const hasPreviewImage = canPreviewDocumentInline(document);
   const previewUri = getPrimaryDocumentPreviewUri(document);
@@ -3787,17 +3714,12 @@ const DocumentRow = memo(function DocumentRow({
 
   return (
     <Pressable
-      style={[styles.documentRow, compact && styles.documentRowCompact, selected && styles.documentRowSelected]}
+      style={[styles.documentRow, compact && styles.documentRowCompact]}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={240}
     >
       <View style={styles.documentLeft}>
-        {selectionMode ? (
-          <View style={[styles.selectionDot, selected && styles.selectionDotActive]}>
-            {selected ? <Ionicons name="checkmark" size={14} color={colors.white} /> : null}
-          </View>
-        ) : null}
         <DocumentThumbnail previewUri={previewUri} hasPreviewImage={hasPreviewImage} />
         <View style={styles.documentText}>
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
@@ -3828,8 +3750,7 @@ const DocumentRow = memo(function DocumentRow({
   previousProps.document.previewImageUri === nextProps.document.previewImageUri &&
   (previousProps.document.previewImageUris?.join('|') ?? '') ===
     (nextProps.document.previewImageUris?.join('|') ?? '') &&
-  previousProps.selectionMode === nextProps.selectionMode &&
-  previousProps.selected === nextProps.selected,
+  true,
 );
 
 function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; onPress: () => void }) {
@@ -3883,17 +3804,17 @@ function BottomNav({
       </View>
       <BottomTabItem
         active={activeTab === 'claims'}
-        label="Reports"
-        icon="stats-chart-outline"
-        activeIcon="stats-chart"
+        label="Expense claims"
+        icon="receipt-outline"
+        activeIcon="receipt"
         onPress={() => onSelect('claims')}
       />
       <BottomTabItem
-        active={activeTab === 'more'}
-        label="Settings"
-        icon="settings-outline"
-        activeIcon="settings"
-        onPress={() => onSelect('more')}
+        active={activeTab === 'reports'}
+        label="Reports"
+        icon="stats-chart-outline"
+        activeIcon="stats-chart"
+        onPress={() => onSelect('reports')}
       />
     </View>
   );
@@ -3922,22 +3843,14 @@ function BottomTabItem({
 
 function MoreSheet({
   target,
-  isAdmin,
   onClose,
-  onOpenSettings,
-  onOpenVault,
-  onOpenTeamAdmin,
   onOpenCamera,
   onUseGallery,
   onCreateMileageClaim,
   onAddToVault,
 }: {
   target: MoreSheetTarget | null;
-  isAdmin: boolean;
   onClose: () => void;
-  onOpenSettings: () => void;
-  onOpenVault: () => void;
-  onOpenTeamAdmin: () => void;
   onOpenCamera: () => void;
   onUseGallery: () => void;
   onCreateMileageClaim: () => void;
@@ -3951,25 +3864,7 @@ function MoreSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
         <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        {target === 'menu' ? (
-          <View style={styles.sheetCard}>
-            <Pressable style={styles.sheetRow} onPress={onOpenVault}>
-              <Ionicons name="wallet-outline" size={28} color={colors.nearBlack} />
-              <Text style={styles.sheetText}>Vault</Text>
-            </Pressable>
-            <Pressable style={styles.sheetRow} onPress={onOpenSettings}>
-              <Ionicons name="settings-outline" size={28} color={colors.nearBlack} />
-              <Text style={styles.sheetText}>Settings</Text>
-            </Pressable>
-            {isAdmin ? (
-              <Pressable style={styles.sheetRow} onPress={onOpenTeamAdmin}>
-                <Ionicons name="people-outline" size={28} color={colors.nearBlack} />
-                <Text style={styles.sheetText}>Team admin</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : (
-          <View style={styles.captureActionSheet}>
+        <View style={styles.captureActionSheet}>
             <Pressable style={styles.captureActionRow} onPress={onCreateMileageClaim}>
               <Ionicons name="car-outline" size={28} color={colors.nearBlack} />
               <Text style={styles.captureActionText}>Create mileage claim</Text>
@@ -3986,76 +3881,8 @@ function MoreSheet({
               <Ionicons name="image-outline" size={20} color={colors.royalBlueDark} />
               <Text style={styles.captureActionGhostText}>Choose from gallery</Text>
             </Pressable>
-          </View>
-        )}
-      </View>
-    </Modal>
-  );
-}
-
-function HeaderMenuSheet({
-  visible,
-  activeTab,
-  bulkSelectionEnabled,
-  selectedCount,
-  onClose,
-  onOpenArchive,
-  onSelectMultiple,
-  onRefresh,
-  onBulkMarkReviewed,
-  onBulkDelete,
-  onClearSelection,
-}: {
-  visible: boolean;
-  activeTab: MainTab;
-  bulkSelectionEnabled: boolean;
-  selectedCount: number;
-  onClose: () => void;
-  onOpenArchive: () => void;
-  onSelectMultiple: () => void;
-  onRefresh: () => void;
-  onBulkMarkReviewed: () => void;
-  onBulkDelete: () => void;
-  onClearSelection: () => void;
-}) {
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable style={styles.headerMenuBackdrop} onPress={onClose}>
-        <View style={styles.headerMenuCard}>
-          {!bulkSelectionEnabled ? (
-            <>
-              {activeTab === 'costs' || activeTab === 'sales' ? (
-                <Pressable style={styles.headerMenuRow} onPress={onOpenArchive}>
-                  <Text style={styles.headerMenuText}>Archive</Text>
-                </Pressable>
-              ) : null}
-              <Pressable style={styles.headerMenuRow} onPress={onSelectMultiple}>
-                <Text style={styles.headerMenuText}>Select multiple items</Text>
-              </Pressable>
-              <Pressable style={styles.headerMenuRow} onPress={onRefresh}>
-                <Text style={styles.headerMenuText}>Refresh feed</Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Text style={styles.headerMenuCaption}>{selectedCount} selected</Text>
-              <Pressable style={styles.headerMenuRow} onPress={onBulkMarkReviewed}>
-                <Text style={styles.headerMenuText}>Mark selected reviewed</Text>
-              </Pressable>
-              <Pressable style={styles.headerMenuRow} onPress={onBulkDelete}>
-                <Text style={styles.headerMenuText}>Delete selected</Text>
-              </Pressable>
-              <Pressable style={styles.headerMenuRow} onPress={onClearSelection}>
-                <Text style={styles.headerMenuText}>Clear selection</Text>
-              </Pressable>
-            </>
-          )}
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
@@ -4294,6 +4121,7 @@ function SettingsPanelSheet({
   vehicleRegistrationInput,
   editingVehicleId,
   onClose,
+  onOpenArchive,
   onExport,
   onChangeVehicleName,
   onChangeVehicleRegistration,
@@ -4312,6 +4140,7 @@ function SettingsPanelSheet({
   vehicleRegistrationInput: string;
   editingVehicleId: string | null;
   onClose: () => void;
+  onOpenArchive: (target: ArchiveTarget) => void;
   onExport: () => void;
   onChangeVehicleName: (value: string) => void;
   onChangeVehicleRegistration: (value: string) => void;
@@ -4340,6 +4169,20 @@ function SettingsPanelSheet({
               <Text style={styles.panelMuted}>
                 Workspace VAT settings are managed by a business administrator on the Exdox website.
               </Text>
+            </>
+          ) : null}
+          {target === 'archive' ? (
+            <>
+              <Text style={styles.panelTitle}>Archive</Text>
+              <Text style={styles.panelMuted}>Choose the document history you want to view.</Text>
+              <Pressable style={styles.panelOptionRow} onPress={() => onOpenArchive('cost')}>
+                <Text style={styles.panelOptionText}>Purchases archive</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.mutedText} />
+              </Pressable>
+              <Pressable style={styles.panelOptionRow} onPress={() => onOpenArchive('sales')}>
+                <Text style={styles.panelOptionText}>Sales archive</Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.mutedText} />
+              </Pressable>
             </>
           ) : null}
           {target === 'logins' ? (
