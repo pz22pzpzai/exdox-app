@@ -95,6 +95,11 @@ type SettingsPanelTarget =
 type StatusFilter = 'all' | ExpenseDocument['status'];
 type SortMode = 'newest' | 'oldest' | 'amount_high' | 'amount_low';
 type ThemeOption = UserSettings['theme'];
+type VaultUploadState = {
+  visible: boolean;
+  progress: number;
+  status: string;
+};
 
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'Exdox Workspace';
@@ -908,6 +913,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [isReady, setIsReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [vaultUpload, setVaultUpload] = useState<VaultUploadState>({ visible: false, progress: 0, status: '' });
   const [errorLogs, setErrorLogs] = useState<AppErrorLog[]>([]);
   const [diagnosticLogs, setDiagnosticLogs] = useState<AppErrorLog[]>([]);
   const [cloudSyncState, setCloudSyncState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle');
@@ -2236,6 +2242,7 @@ export default function App() {
 
   const handleAddToVault = useEffectEvent(async () => {
     setSheetTarget(null);
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         multiple: false,
@@ -2248,6 +2255,25 @@ export default function App() {
       }
 
       const asset = result.assets[0];
+      setVaultUpload({
+        visible: true,
+        progress: 12,
+        status: 'Uploading your file securely...',
+      });
+      progressTimer = setInterval(() => {
+        setVaultUpload((current) => {
+          if (!current.visible) {
+            return current;
+          }
+
+          const progress = Math.min(88, current.progress + 4);
+          return {
+            ...current,
+            progress,
+            status: progress >= 56 ? 'Processing your Vault item...' : 'Uploading your file securely...',
+          };
+        });
+      }, 650);
       const vaultDocument = await addDocument({
         fileName: asset.name,
         source: 'files',
@@ -2258,15 +2284,32 @@ export default function App() {
         workspaceContext: 'vault',
         paymentMethod: 'not_applicable',
       });
+      if (!vaultDocument) {
+        throw new Error('The file could not be saved to the Vault.');
+      }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = undefined;
+      }
+      setVaultUpload({
+        visible: true,
+        progress: 100,
+        status: 'Processed and saved securely.',
+      });
+      await delay(350);
+      setVaultUpload({ visible: false, progress: 0, status: '' });
       Alert.alert(
         'Vault upload processed',
-        vaultDocument?.extractionSource === 'backend_proxy'
-          ? 'Your file has been processed using OCR and saved securely in the Vault.'
-          : 'Your file has been saved in the Vault and is ready for OCR review.',
+        'Your file has been processed and saved securely in the Vault.',
       );
     } catch (error) {
       void recordError('handleAddToVault', error);
       Alert.alert('Vault upload failed', error instanceof Error ? error.message : 'Could not save this file to the vault.');
+    } finally {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+      }
+      setVaultUpload({ visible: false, progress: 0, status: '' });
     }
   });
 
@@ -2724,6 +2767,12 @@ export default function App() {
             setMileageVisible(true);
           }}
           onAddToVault={() => void handleAddToVault()}
+        />
+
+        <VaultUploadProgress
+          visible={vaultUpload.visible}
+          progress={vaultUpload.progress}
+          status={vaultUpload.status}
         />
 
         <CaptureReviewScreen
@@ -3887,6 +3936,42 @@ function MoreSheet({
               <Ionicons name="image-outline" size={20} color={colors.royalBlueDark} />
               <Text style={styles.captureActionGhostText}>Choose from gallery</Text>
             </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function VaultUploadProgress({
+  visible,
+  progress,
+  status,
+}: {
+  visible: boolean;
+  progress: number;
+  status: string;
+}) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="fade" visible statusBarTranslucent>
+      <View style={styles.vaultUploadBackdrop}>
+        <View
+          style={styles.vaultUploadCard}
+          accessibilityRole="progressbar"
+          accessibilityValue={{ min: 0, max: 100, now: progress }}
+        >
+          <View style={styles.vaultUploadIcon}>
+            <Ionicons name="shield-checkmark-outline" size={30} color={colors.white} />
+          </View>
+          <Text style={styles.vaultUploadTitle}>Saving to Vault</Text>
+          <Text style={styles.vaultUploadStatus}>{status}</Text>
+          <View style={styles.vaultUploadTrack}>
+            <View style={[styles.vaultUploadFill, { width: `${progress}%` }]} />
+          </View>
+          <Text style={styles.vaultUploadPercent}>{`${Math.round(progress)}%`}</Text>
         </View>
       </View>
     </Modal>
@@ -6230,6 +6315,61 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.royalBlueDark,
+  },
+  vaultUploadBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+    backgroundColor: 'rgba(7, 20, 48, 0.5)',
+  },
+  vaultUploadCard: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    borderRadius: 28,
+    paddingHorizontal: 28,
+    paddingVertical: 30,
+    backgroundColor: colors.white,
+  },
+  vaultUploadIcon: {
+    width: 58,
+    height: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: colors.tealDeep,
+  },
+  vaultUploadTitle: {
+    marginTop: 18,
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.nearBlack,
+  },
+  vaultUploadStatus: {
+    marginTop: 8,
+    fontSize: 15,
+    color: colors.mutedInk,
+    textAlign: 'center',
+  },
+  vaultUploadTrack: {
+    width: '100%',
+    height: 10,
+    marginTop: 24,
+    overflow: 'hidden',
+    borderRadius: 5,
+    backgroundColor: '#DDE8EF',
+  },
+  vaultUploadFill: {
+    height: '100%',
+    borderRadius: 5,
+    backgroundColor: colors.tealDeep,
+  },
+  vaultUploadPercent: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.tealDeep,
   },
   captureReviewScreen: {
     flex: 1,
