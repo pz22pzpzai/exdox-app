@@ -54,6 +54,7 @@ export interface ExtractedDocumentDraft {
   category: string;
   description?: string;
   customer?: string;
+  date?: string;
   notes: string;
   dueDate?: string;
   invoiceNumber?: string;
@@ -164,6 +165,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
         taxAmount: payload.document.totalTaxAmount ?? 0,
         currency: payload.document.currency ?? 'GBP',
         category: type === 'invoice' ? 'Accounts Payable' : 'General',
+        date: payload.document.invoiceDate ?? undefined,
         notes: payload.document.notes.join(' ') || 'Processed through the secure expenses proxy.',
         dueDate: payload.document.dueDate ?? undefined,
         invoiceNumber: payload.document.invoiceNumber ?? undefined,
@@ -209,6 +211,7 @@ type ExpenseApiResponse = {
   };
   document: {
     vendorName: string | null;
+    invoiceDate: string | null;
     dueDate: string | null;
     invoiceNumber: string | null;
     currency: string | null;

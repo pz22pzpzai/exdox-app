@@ -251,6 +251,7 @@ const applyExtractedDocumentDraft = (
   category: document.category.trim() ? document.category : extracted.category ?? document.category,
   description: extracted.description ?? document.description ?? '',
   customer: extracted.customer ?? document.customer ?? '',
+  date: extracted.date ?? document.date,
   dueDate: extracted.dueDate,
   invoiceNumber: extracted.invoiceNumber,
   notes: extracted.notes || document.notes,

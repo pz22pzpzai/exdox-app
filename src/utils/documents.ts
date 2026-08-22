@@ -93,7 +93,7 @@ export const buildDraftDocument = async ({
     category: extracted.category,
     description: extracted.description ?? '',
     customer: extracted.customer ?? '',
-    date: now,
+    date: extracted.date ?? now,
     dueDate: extracted.dueDate,
     invoiceNumber: extracted.invoiceNumber,
     notes: extracted.notes,
