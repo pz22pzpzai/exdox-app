@@ -1467,7 +1467,7 @@ export default function App() {
         source,
         workspaceContext,
         paymentMethod,
-        skipProcessing: workspaceContext === 'vault',
+        skipProcessing: false,
       });
       let currentDocument = appStateRef.current.documents.find((document) => document.id === documentId);
       const extractedWithDuplicateHint = markDuplicateUploadDraft(
@@ -2248,7 +2248,7 @@ export default function App() {
       }
 
       const asset = result.assets[0];
-      await addDocument({
+      const vaultDocument = await addDocument({
         fileName: asset.name,
         source: 'files',
         type: 'receipt',
@@ -2258,7 +2258,12 @@ export default function App() {
         workspaceContext: 'vault',
         paymentMethod: 'not_applicable',
       });
-      Alert.alert('Saved to Vault', 'The file was stored in your secure vault without OCR processing.');
+      Alert.alert(
+        'Vault upload processed',
+        vaultDocument?.extractionSource === 'backend_proxy'
+          ? 'Your file has been processed using OCR and saved securely in the Vault.'
+          : 'Your file has been saved in the Vault and is ready for OCR review.',
+      );
     } catch (error) {
       void recordError('handleAddToVault', error);
       Alert.alert('Vault upload failed', error instanceof Error ? error.message : 'Could not save this file to the vault.');
@@ -4233,7 +4238,7 @@ function SettingsPanelSheet({
           {target === 'vault' ? (
             <>
               <Text style={styles.panelTitle}>Vault</Text>
-              <Text style={styles.panelMuted}>Vault items are stored without OCR when you choose Add to Vault.</Text>
+              <Text style={styles.panelMuted}>Vault items are read with OCR and stored securely for future reference.</Text>
             </>
           ) : null}
           {target === 'team_admin' ? (

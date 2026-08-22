@@ -166,7 +166,7 @@ const extractDraftSafely = async ({
       source,
       workspaceContext,
       paymentMethod,
-      skipProcessing: workspaceContext === 'vault',
+      skipProcessing: false,
     });
   } catch {
     return {
