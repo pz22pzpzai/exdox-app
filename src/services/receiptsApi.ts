@@ -56,6 +56,13 @@ type ReceiptApiResponse = {
     dueDate: string | null;
     invoiceNumber: string | null;
     currency: string | null;
+    baseCurrency: string;
+    baseTotalAmount: number | null;
+    exchangeRate: number | null;
+    exchangeRateDate: string | null;
+    exchangeRateProvider: string | null;
+    exchangeRateOverride: boolean;
+    exchangeRateNote: string | null;
     totalAmount: number | null;
     netAmount: number | null;
     vatAmount: number | null;
@@ -299,6 +306,13 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     taxRateApplied: receipt.taxRateApplied ?? 'No VAT',
     taxAmount: receipt.totalTaxAmount ?? 0,
     currency: receipt.currency ?? 'GBP',
+    baseCurrency: receipt.baseCurrency ?? 'GBP',
+    baseAmount: receipt.baseTotalAmount,
+    exchangeRate: receipt.exchangeRate,
+    exchangeRateDate: receipt.exchangeRateDate,
+    exchangeRateProvider: receipt.exchangeRateProvider,
+    exchangeRateOverride: receipt.exchangeRateOverride,
+    exchangeRateNote: receipt.exchangeRateNote,
     status,
     category: receipt.category ?? (receipt.documentType === 'invoice' ? 'Accounts Payable' : 'General'),
     description: receipt.description ?? '',

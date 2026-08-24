@@ -3360,7 +3360,7 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
       total: 0,
       documents: [],
     };
-    round.total += document.amount;
+    round.total += document.baseAmount ?? document.amount;
     round.documents.push(document);
     rounds.set(key, round);
   });
@@ -3383,7 +3383,8 @@ function PaymentRoundCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const roundTotal = formatCurrency(round.total);
+  const roundCurrency = round.documents[0]?.baseCurrency ?? 'GBP';
+  const roundTotal = formatCurrency(round.total, roundCurrency);
 
   return (
     <View style={styles.paymentRoundCard}>
@@ -3406,7 +3407,11 @@ function PaymentRoundCard({
           {round.documents.map((document) => (
             <View key={document.id} style={styles.paymentRoundReceiptRow}>
               <Text style={styles.paymentRoundReceiptDate}>{formatDate(document.date)}</Text>
-              <Text style={styles.paymentRoundReceiptAmount}>{formatCurrency(document.amount)}</Text>
+              <Text style={styles.paymentRoundReceiptAmount}>
+                {document.currency === document.baseCurrency || document.baseAmount == null
+                  ? formatCurrency(document.amount, document.currency)
+                  : `${formatCurrency(document.amount, document.currency)} · ${formatCurrency(document.baseAmount, document.baseCurrency)}`}
+              </Text>
             </View>
           ))}
         </View>

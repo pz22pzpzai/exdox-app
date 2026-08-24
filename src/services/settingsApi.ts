@@ -8,6 +8,7 @@ type SettingsResponse =
       settings: {
         organisationId: number;
         organisationName: string;
+        baseCurrency: string;
         isVatRegistered: boolean;
         defaultTaxRate: OrganisationSettings['defaultTaxRate'];
       };
@@ -34,7 +35,7 @@ export async function fetchOrganisationSettings() {
 }
 
 export async function saveOrganisationSettings(
-  payload: Pick<OrganisationSettings, 'isVatRegistered' | 'defaultTaxRate'>,
+  payload: Pick<OrganisationSettings, 'baseCurrency' | 'isVatRegistered' | 'defaultTaxRate'>,
 ) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/settings`, {

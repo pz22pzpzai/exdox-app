@@ -129,6 +129,7 @@ const normalizeState = (saved: Partial<AppState>): AppState => ({
   organisationSettings: saved.organisationSettings
     ? {
         ...saved.organisationSettings,
+        baseCurrency: saved.organisationSettings.baseCurrency ?? 'GBP',
         isVatRegistered: saved.organisationSettings.isVatRegistered !== false,
         defaultTaxRate: saved.organisationSettings.defaultTaxRate ?? '20% Standard',
       }

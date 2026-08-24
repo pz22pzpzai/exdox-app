@@ -29,6 +29,13 @@ export interface ExpenseDocument {
   taxRateApplied: UkTaxRate;
   taxAmount: number;
   currency: string;
+  baseCurrency?: string;
+  baseAmount?: number | null;
+  exchangeRate?: number | null;
+  exchangeRateDate?: string | null;
+  exchangeRateProvider?: string | null;
+  exchangeRateOverride?: boolean;
+  exchangeRateNote?: string | null;
   status: DocumentStatus;
   category: string;
   description?: string;
@@ -100,6 +107,7 @@ export interface UserSettings {
 export interface OrganisationSettings {
   organisationId: number;
   organisationName: string;
+  baseCurrency: string;
   isVatRegistered: boolean;
   defaultTaxRate: UkTaxRate;
 }
