@@ -3343,7 +3343,7 @@ function ClaimsScreen({
 type PaymentRound = {
   id: string;
   processedAt: string;
-  currencyTotals: Array<{ currency: string; total: number }>;
+  total: number;
   documents: ExpenseDocument[];
 };
 
@@ -3357,15 +3357,10 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
     const round = rounds.get(key) ?? {
       id: key,
       processedAt,
-      currencyTotals: [],
+      total: 0,
       documents: [],
     };
-    const currencyTotal = round.currencyTotals.find((total) => total.currency === document.currency);
-    if (currencyTotal) {
-      currencyTotal.total += document.amount;
-    } else {
-      round.currencyTotals.push({ currency: document.currency, total: document.amount });
-    }
+    round.total += document.amount;
     round.documents.push(document);
     rounds.set(key, round);
   });
@@ -3373,7 +3368,7 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
   return [...rounds.values()]
     .map((round) => ({
       ...round,
-      currencyTotals: round.currencyTotals.map((total) => ({ ...total, total: Number(total.total.toFixed(2)) })),
+      total: Number(round.total.toFixed(2)),
       documents: [...round.documents].sort((left, right) => right.date.localeCompare(left.date)),
     }))
     .sort((left, right) => right.processedAt.localeCompare(left.processedAt));
@@ -3388,9 +3383,7 @@ function PaymentRoundCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const roundTotal = round.currencyTotals
-    .map((total) => formatCurrency(total.total, total.currency))
-    .join(' + ');
+  const roundTotal = formatCurrency(round.total);
 
   return (
     <View style={styles.paymentRoundCard}>
@@ -3413,7 +3406,7 @@ function PaymentRoundCard({
           {round.documents.map((document) => (
             <View key={document.id} style={styles.paymentRoundReceiptRow}>
               <Text style={styles.paymentRoundReceiptDate}>{formatDate(document.date)}</Text>
-              <Text style={styles.paymentRoundReceiptAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+              <Text style={styles.paymentRoundReceiptAmount}>{formatCurrency(document.amount)}</Text>
             </View>
           ))}
         </View>
