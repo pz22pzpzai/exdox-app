@@ -7,6 +7,7 @@ const statusLabel = {
   awaiting_review: 'Awaiting review',
   ready_to_submit: 'Ready to submit',
   submitted: 'Submitted',
+  payment_processing: 'Payment processing',
   paid: 'Paid',
 } as const;
 
@@ -14,6 +15,7 @@ const statusTone = {
   awaiting_review: '#F6E6C6',
   ready_to_submit: '#D9EBDD',
   submitted: '#DDE8F2',
+  payment_processing: '#DDE8F2',
   paid: '#D7EEE2',
 } as const;
 

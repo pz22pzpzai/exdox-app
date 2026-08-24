@@ -753,6 +753,7 @@ const statusFilterOptions: Array<{ label: string; value: StatusFilter }> = [
   { label: 'To review', value: 'awaiting_review' },
   { label: 'Reviewed', value: 'ready_to_submit' },
   { label: 'Submitted', value: 'submitted' },
+  { label: 'Payment processing', value: 'payment_processing' },
   { label: 'Paid', value: 'paid' },
 ];
 
@@ -784,7 +785,14 @@ const getStatusLabel = (status: ExpenseDocument['status']) =>
       ? 'Reviewed'
       : status === 'submitted'
         ? 'Submitted'
+        : status === 'payment_processing'
+          ? 'Payment processing'
         : 'Paid';
+
+const isReimbursementArchiveDocument = (document: ExpenseDocument) =>
+  document.workspaceContext === 'cost' &&
+  document.paymentMethod === 'cash_personal' &&
+  (document.status === 'payment_processing' || document.status === 'paid');
 
 const buildInboundEmailAddress = (organisationName: string, organisationId: number) => {
   const slug = organisationName
@@ -1691,7 +1699,7 @@ export default function App() {
     const term = deferredSearch.trim().toLowerCase();
     return appState.documents
       .filter((document) => {
-        if (activeTab === 'costs' && document.workspaceContext !== 'cost') {
+        if (activeTab === 'costs' && (document.workspaceContext !== 'cost' || isReimbursementArchiveDocument(document))) {
           return false;
         }
         if (activeTab === 'sales' && document.workspaceContext !== 'sales') {
@@ -1733,7 +1741,10 @@ export default function App() {
 
     return appState.documents
       .filter((document) => document.workspaceContext === archiveTarget)
-      .filter((document) => document.status === 'submitted' || document.status === 'paid')
+      .filter(
+        (document) =>
+          document.status === 'submitted' || document.status === 'payment_processing' || document.status === 'paid',
+      )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }, [appState.documents, archiveTarget]);
 
@@ -2710,9 +2721,13 @@ export default function App() {
               claims={claims}
               documents={appState.documents}
               claimableDocuments={[]}
+              reimbursementDocuments={appState.documents
+                .filter(isReimbursementArchiveDocument)
+                .sort((left, right) => right.createdAt.localeCompare(left.createdAt))}
               mode="reports"
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
+              onOpenDocument={setSelectedDocumentId}
             />
           )}
           {activeTab === 'more' && (
@@ -3187,16 +3202,20 @@ function ClaimsScreen({
   claims,
   documents,
   claimableDocuments,
+  reimbursementDocuments = [],
   mode,
   onCreateClaim,
   onAttachDocument,
+  onOpenDocument,
 }: {
   claims: Claim[];
   documents: ExpenseDocument[];
   claimableDocuments: ExpenseDocument[];
+  reimbursementDocuments?: ExpenseDocument[];
   mode: 'claims' | 'reports';
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
+  onOpenDocument?: (documentId: string) => void;
 }) {
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
 
@@ -3204,7 +3223,7 @@ function ClaimsScreen({
   const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
   const visibleClaims = mode === 'reports' ? processedClaims : openClaims;
 
-  if (!visibleClaims.length) {
+  if (!visibleClaims.length && !(mode === 'reports' && reimbursementDocuments.length)) {
     return (
       <BlankPanel
         icon={mode === 'reports' ? 'analytics-outline' : 'receipt-outline'}
@@ -3264,6 +3283,30 @@ function ClaimsScreen({
               ))}
             </View>
           ))}
+        </>
+      ) : null}
+
+      {mode === 'reports' && reimbursementDocuments.length ? (
+        <>
+          <View style={styles.claimSectionHeading}>
+            <View>
+              <Text style={styles.claimSectionTitle}>Reimbursement archive</Text>
+              <Text style={styles.claimSectionCopy}>
+                Expenses your employer has included in payment processing or marked as paid.
+              </Text>
+            </View>
+            <Ionicons name="wallet-outline" size={22} color={colors.dotMint} />
+          </View>
+          <View style={styles.claimMonthGroup}>
+            {reimbursementDocuments.map((document) => (
+              <DocumentRow
+                key={document.id}
+                document={document}
+                compact
+                onPress={() => onOpenDocument?.(document.id)}
+              />
+            ))}
+          </View>
         </>
       ) : null}
 
@@ -3817,6 +3860,8 @@ function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; on
         ? styles.pillReady
         : status === 'submitted'
           ? styles.pillSubmitted
+          : status === 'payment_processing'
+            ? styles.pillSubmitted
           : styles.pillPaid;
 
   return (
@@ -4649,6 +4694,7 @@ function DocumentSheet({
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
   const effectiveTaxRate = vatTrackingEnabled ? selectedTaxRate : 'No VAT';
+  const reimbursementArchived = isReimbursementArchiveDocument(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
       ? 'Reading this receipt now.'
@@ -4657,6 +4703,11 @@ function DocumentSheet({
         : document.needsReview
           ? 'Extraction finished. Review the details before submitting.'
           : 'Extraction finished.';
+  const documentStatusText = reimbursementArchived
+    ? document.status === 'paid'
+      ? 'This expense has been paid and is retained here for your records.'
+      : 'This expense is included in your employer\'s payment processing and is retained here for your records.'
+    : extractionStatusText;
 
   return (
     <>
@@ -4695,7 +4746,9 @@ function DocumentSheet({
           <Text style={styles.documentSheetTitle}>{document.title}</Text>
           <Text style={styles.documentSheetMeta}>{document.supplier}</Text>
           <Text style={styles.documentSheetAmount}>£{document.amount.toFixed(2)}</Text>
-          <Text style={styles.documentSheetStatus}>{extractionStatusText}</Text>
+          <Text style={styles.documentSheetStatus}>{documentStatusText}</Text>
+          {!reimbursementArchived ? (
+            <>
           <View style={styles.reviewEditor}>
             <Pressable style={styles.reviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
               <Text style={styles.reviewFieldLabel}>Category</Text>
@@ -4817,6 +4870,8 @@ function DocumentSheet({
               <Text style={styles.sheetActionDangerText}>Delete</Text>
             </Pressable>
               </View>
+            </>
+          ) : null}
             </ScrollView>
           </View>
         </View>

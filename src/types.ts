@@ -7,6 +7,7 @@ export type DocumentStatus =
   | 'awaiting_review'
   | 'ready_to_submit'
   | 'submitted'
+  | 'payment_processing'
   | 'paid';
 
 export type ExtractionStatus = 'pending' | 'complete' | 'failed';

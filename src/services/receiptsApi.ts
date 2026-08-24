@@ -332,6 +332,9 @@ function mapCloudReceiptStatus(status: string | null | undefined): ExpenseDocume
   if (normalized === 'submitted') {
     return 'submitted';
   }
+  if (normalized === 'payment processing' || normalized === 'payment_processing') {
+    return 'payment_processing';
+  }
   if (normalized === 'paid') {
     return 'paid';
   }
