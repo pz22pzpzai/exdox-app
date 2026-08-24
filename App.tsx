@@ -2832,13 +2832,11 @@ export default function App() {
               void createClaimFromReceipt(selectedDocument);
             }
           }}
-          onUpdateReviewFields={(reviewFields) => {
-            if (selectedDocument) {
-              void updateDocumentReviewFields(selectedDocument.id, reviewFields, {
-                title: 'Values saved',
-                message: 'The receipt values have been saved.',
-              });
+          onUpdateReviewFields={async (reviewFields) => {
+            if (!selectedDocument) {
+              return;
             }
+            await updateDocumentReviewFields(selectedDocument.id, reviewFields);
           }}
           onMarkSubmitted={() => {
             if (selectedDocument) {
@@ -4741,7 +4739,7 @@ function DocumentSheet({
       ExpenseDocument,
       'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer'
     >,
-  ) => void;
+  ) => Promise<void>;
   onMarkSubmitted: () => void;
   onDelete: () => void;
 }) {
@@ -4757,6 +4755,8 @@ function DocumentSheet({
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [categorySearchInput, setCategorySearchInput] = useState('');
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [savingValues, setSavingValues] = useState(false);
+  const [savingValuesProgress, setSavingValuesProgress] = useState(0);
 
   useEffect(() => {
     if (!document) {
@@ -4948,25 +4948,39 @@ function DocumentSheet({
               </View>
             )}
             <Pressable
-              style={styles.taxSaveButton}
-              onPress={() => {
+              style={[styles.taxSaveButton, savingValues && styles.taxSaveButtonDisabled]}
+              disabled={savingValues}
+              onPress={async () => {
                 const amount = parseMoneyInput(totalInput);
                 const netAmount = vatTrackingEnabled ? parseMoneyInput(netInput) : amount;
                 const vatAmount = vatTrackingEnabled ? parseMoneyInput(vatInput) : 0;
-                onUpdateReviewFields({
-                  amount,
-                  netAmount,
-                  vatAmount,
-                  taxAmount: vatAmount,
-                  currency: selectedCurrency,
-                  category: selectedCategory || document.category,
-                  description: descriptionInput.trim(),
-                  customer: customerInput.trim(),
-                  taxRateApplied: effectiveTaxRate,
-                });
+                setSavingValues(true);
+                setSavingValuesProgress(16);
+                const progressTimer = setInterval(() => {
+                  setSavingValuesProgress((current) => Math.min(86, current + 7));
+                }, 180);
+                try {
+                  await onUpdateReviewFields({
+                    amount,
+                    netAmount,
+                    vatAmount,
+                    taxAmount: vatAmount,
+                    currency: selectedCurrency,
+                    category: selectedCategory || document.category,
+                    description: descriptionInput.trim(),
+                    customer: customerInput.trim(),
+                    taxRateApplied: effectiveTaxRate,
+                  });
+                  setSavingValuesProgress(100);
+                  await delay(220);
+                } finally {
+                  clearInterval(progressTimer);
+                  setSavingValues(false);
+                  setSavingValuesProgress(0);
+                }
               }}
             >
-              <Text style={styles.taxSaveButtonText}>Save Values</Text>
+              <Text style={styles.taxSaveButtonText}>{savingValues ? 'Saving values...' : 'Save Values'}</Text>
             </Pressable>
           </View>
               <View style={styles.documentSheetActions}>
@@ -5042,7 +5056,36 @@ function DocumentSheet({
           ) : null}
         </View>
       </Modal>
+      <SavingValuesProgress visible={savingValues} progress={savingValuesProgress} />
     </>
+  );
+}
+
+function SavingValuesProgress({ visible, progress }: { visible: boolean; progress: number }) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="fade" visible statusBarTranslucent>
+      <View style={styles.vaultUploadBackdrop}>
+        <View
+          style={styles.vaultUploadCard}
+          accessibilityRole="progressbar"
+          accessibilityValue={{ min: 0, max: 100, now: progress }}
+        >
+          <View style={styles.vaultUploadIcon}>
+            <Ionicons name="save-outline" size={30} color={colors.white} />
+          </View>
+          <Text style={styles.vaultUploadTitle}>Saving values</Text>
+          <Text style={styles.vaultUploadStatus}>Updating this receipt securely...</Text>
+          <View style={styles.vaultUploadTrack}>
+            <View style={[styles.vaultUploadFill, { width: `${progress}%` }]} />
+          </View>
+          <Text style={styles.vaultUploadPercent}>{`${Math.round(progress)}%`}</Text>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -6956,6 +6999,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.royalBlueDark,
     paddingVertical: 12,
     alignItems: 'center',
+  },
+  taxSaveButtonDisabled: {
+    opacity: 0.65,
   },
   taxSaveButtonText: {
     fontSize: 15,
