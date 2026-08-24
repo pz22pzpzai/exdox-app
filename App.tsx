@@ -564,6 +564,7 @@ const buildCloudReceiptSyncUpdates = (document: ExpenseDocument) => ({
   description: document.description,
   customer: document.customer,
   amount: document.amount,
+  currency: document.currency,
   netAmount: document.netAmount,
   vatAmount: document.vatAmount,
   taxRateApplied: document.taxRateApplied,
@@ -1196,7 +1197,7 @@ export default function App() {
       updates: Partial<
         Pick<
           ExpenseDocument,
-          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'taxRateApplied' | 'status'
+          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
         >
       >,
     ) => {
@@ -1216,6 +1217,7 @@ export default function App() {
         netAmount: updates.netAmount ?? document.netAmount,
         vatAmount: updates.vatAmount ?? document.vatAmount,
         amount: updates.amount ?? document.amount,
+        currency: updates.currency ?? document.currency,
         taxRateApplied: updates.taxRateApplied ?? document.taxRateApplied,
         status: updates.status ?? document.status,
       });
@@ -2408,7 +2410,7 @@ export default function App() {
     documentId: string,
     reviewFields: Pick<
       ExpenseDocument,
-      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'category' | 'description' | 'customer'
+      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer'
     >,
     successConfirmation?: {
       title: string;
@@ -2802,7 +2804,10 @@ export default function App() {
             if (!captureReviewDocument) {
               return;
             }
-            await updateDocumentReviewFields(captureReviewDocument.id, reviewFields);
+            await updateDocumentReviewFields(captureReviewDocument.id, {
+              ...reviewFields,
+              currency: captureReviewDocument.currency,
+            });
             setCaptureReviewDocumentId(null);
             setSelectedDocumentId(null);
             setActiveTab(captureReviewDocument.type === 'invoice' ? 'sales' : 'costs');
@@ -2832,7 +2837,7 @@ export default function App() {
               void updateDocumentReviewFields(selectedDocument.id, reviewFields, {
                 title: 'Values saved',
                 message: 'The receipt values have been saved.',
-              }, 'background');
+              });
             }
           }}
           onMarkSubmitted={() => {
@@ -4734,7 +4739,7 @@ function DocumentSheet({
   onUpdateReviewFields: (
     reviewFields: Pick<
       ExpenseDocument,
-      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'category' | 'description' | 'customer'
+      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer'
     >,
   ) => void;
   onMarkSubmitted: () => void;
@@ -4743,6 +4748,7 @@ function DocumentSheet({
   const [totalInput, setTotalInput] = useState('0.00');
   const [netInput, setNetInput] = useState('0.00');
   const [vatInput, setVatInput] = useState('0.00');
+  const [selectedCurrency, setSelectedCurrency] = useState('GBP');
   const [selectedTaxRate, setSelectedTaxRate] = useState<UkTaxRate>('No VAT');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
@@ -4759,6 +4765,7 @@ function DocumentSheet({
     setTotalInput(formatMoneyInput(document.amount));
     setNetInput(formatMoneyInput(document.netAmount ?? document.amount));
     setVatInput(formatMoneyInput(document.vatAmount ?? document.taxAmount));
+    setSelectedCurrency(document.currency || 'GBP');
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setSelectedCategory(document.category ?? '');
     setDescriptionInput(document.description ?? '');
@@ -4881,6 +4888,22 @@ function DocumentSheet({
               {vatTrackingEnabled ? <TaxAmountField label="Net" value={netInput} onChangeText={setNetInput} /> : null}
               {vatTrackingEnabled ? <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} /> : null}
             </View>
+            <View style={styles.taxDropdown}>
+              <Text style={styles.taxDropdownLabel}>Currency</Text>
+              <View style={styles.taxDropdownValueWrap}>
+                {['GBP', 'USD', 'EUR'].map((currency) => (
+                  <Pressable
+                    key={currency}
+                    style={[styles.taxDropdownOption, currency === selectedCurrency && styles.taxDropdownOptionActive]}
+                    onPress={() => setSelectedCurrency(currency)}
+                  >
+                    <Text style={[styles.taxDropdownOptionText, currency === selectedCurrency && styles.taxDropdownOptionTextActive]}>
+                      {currency}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
             {vatTrackingEnabled ? (
               <>
                 <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
@@ -4935,6 +4958,7 @@ function DocumentSheet({
                   netAmount,
                   vatAmount,
                   taxAmount: vatAmount,
+                  currency: selectedCurrency,
                   category: selectedCategory || document.category,
                   description: descriptionInput.trim(),
                   customer: customerInput.trim(),
