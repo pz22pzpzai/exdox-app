@@ -3343,8 +3343,7 @@ function ClaimsScreen({
 type PaymentRound = {
   id: string;
   processedAt: string;
-  currency: string;
-  total: number;
+  currencyTotals: Array<{ currency: string; total: number }>;
   documents: ExpenseDocument[];
 };
 
@@ -3354,15 +3353,19 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
   documents.forEach((document) => {
     // The server changes every receipt in one payment batch in the same update operation.
     const processedAt = document.updatedAt ?? document.createdAt;
-    const key = `${document.status}:${document.currency}:${processedAt}`;
+    const key = `${document.status}:${processedAt}`;
     const round = rounds.get(key) ?? {
       id: key,
       processedAt,
-      currency: document.currency,
-      total: 0,
+      currencyTotals: [],
       documents: [],
     };
-    round.total += document.amount;
+    const currencyTotal = round.currencyTotals.find((total) => total.currency === document.currency);
+    if (currencyTotal) {
+      currencyTotal.total += document.amount;
+    } else {
+      round.currencyTotals.push({ currency: document.currency, total: document.amount });
+    }
     round.documents.push(document);
     rounds.set(key, round);
   });
@@ -3370,7 +3373,7 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
   return [...rounds.values()]
     .map((round) => ({
       ...round,
-      total: Number(round.total.toFixed(2)),
+      currencyTotals: round.currencyTotals.map((total) => ({ ...total, total: Number(total.total.toFixed(2)) })),
       documents: [...round.documents].sort((left, right) => right.date.localeCompare(left.date)),
     }))
     .sort((left, right) => right.processedAt.localeCompare(left.processedAt));
@@ -3385,6 +3388,10 @@ function PaymentRoundCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const roundTotal = round.currencyTotals
+    .map((total) => formatCurrency(total.total, total.currency))
+    .join(' + ');
+
   return (
     <View style={styles.paymentRoundCard}>
       <Pressable
@@ -3392,11 +3399,11 @@ function PaymentRoundCard({
         onPress={onToggle}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${formatDate(round.processedAt)}, ${formatCurrency(round.total, round.currency)}, ${round.documents.length} receipts`}
+        accessibilityLabel={`${formatDate(round.processedAt)}, ${roundTotal}, ${round.documents.length} receipts`}
       >
         <Text style={styles.paymentRoundDate}>{formatDate(round.processedAt)}</Text>
         <View style={styles.paymentRoundTotalWrap}>
-          <Text style={styles.paymentRoundTotal}>{formatCurrency(round.total, round.currency)}</Text>
+          <Text style={styles.paymentRoundTotal}>{roundTotal}</Text>
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={19} color={colors.royalBlueDark} />
         </View>
       </Pressable>
