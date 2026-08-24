@@ -253,6 +253,11 @@ const applyExtractedDocumentDraft = (
   taxRateApplied: extracted.taxRateApplied ?? document.taxRateApplied ?? 'No VAT',
   taxAmount: extracted.taxAmount ?? document.taxAmount,
   currency: extracted.currency ?? document.currency,
+  baseCurrency: extracted.baseCurrency ?? document.baseCurrency,
+  baseAmount: extracted.baseAmount ?? document.baseAmount,
+  exchangeRate: extracted.exchangeRate ?? document.exchangeRate,
+  exchangeRateDate: extracted.exchangeRateDate ?? document.exchangeRateDate,
+  exchangeRateProvider: extracted.exchangeRateProvider ?? document.exchangeRateProvider,
   category: document.category.trim() ? document.category : extracted.category ?? document.category,
   description: extracted.description ?? document.description ?? '',
   customer: extracted.customer ?? document.customer ?? '',
@@ -3902,7 +3907,9 @@ const DocumentRow = memo(function DocumentRow({
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
             {document.title}
           </Text>
-          <Text style={[styles.documentAmount, isProcessing && styles.documentAmountPending]}>{`£${document.amount.toFixed(2)}`}</Text>
+          <Text style={[styles.documentAmount, isProcessing && styles.documentAmountPending]}>
+            {formatCurrency(document.amount, document.currency)}
+          </Text>
           {extractionStatusText ? <Text style={styles.documentStatusText}>{extractionStatusText}</Text> : null}
         </View>
       </View>
@@ -4824,7 +4831,12 @@ function DocumentSheet({
               ) : null}
           <Text style={styles.documentSheetTitle}>{document.title}</Text>
           <Text style={styles.documentSheetMeta}>{document.supplier}</Text>
-          <Text style={styles.documentSheetAmount}>£{document.amount.toFixed(2)}</Text>
+          <Text style={styles.documentSheetAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+          {document.baseAmount != null && document.currency !== document.baseCurrency ? (
+            <Text style={styles.documentSheetMeta}>
+              {formatCurrency(document.baseAmount, document.baseCurrency)} at the recorded exchange rate
+            </Text>
+          ) : null}
           <Text style={styles.documentSheetStatus}>{documentStatusText}</Text>
           {!reimbursementArchived ? (
             <>

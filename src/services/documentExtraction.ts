@@ -51,6 +51,11 @@ export interface ExtractedDocumentDraft {
   taxRateApplied: ExpenseDocument['taxRateApplied'];
   taxAmount: number;
   currency: string;
+  baseCurrency?: string;
+  baseAmount?: number | null;
+  exchangeRate?: number | null;
+  exchangeRateDate?: string | null;
+  exchangeRateProvider?: string | null;
   category: string;
   description?: string;
   customer?: string;
@@ -164,6 +169,11 @@ class LocalMockExtractionService implements DocumentExtractionService {
         taxRateApplied: payload.document.taxRateApplied ?? 'No VAT',
         taxAmount: payload.document.totalTaxAmount ?? 0,
         currency: payload.document.currency ?? 'GBP',
+        baseCurrency: payload.document.baseCurrency ?? 'GBP',
+        baseAmount: payload.document.baseTotalAmount,
+        exchangeRate: payload.document.exchangeRate,
+        exchangeRateDate: payload.document.exchangeRateDate,
+        exchangeRateProvider: payload.document.exchangeRateProvider,
         category: type === 'invoice' ? 'Accounts Payable' : 'General',
         date: payload.document.invoiceDate ?? undefined,
         notes: payload.document.notes.join(' ') || 'Processed through the secure expenses proxy.',
@@ -215,6 +225,11 @@ type ExpenseApiResponse = {
     dueDate: string | null;
     invoiceNumber: string | null;
     currency: string | null;
+    baseCurrency?: string | null;
+    baseTotalAmount?: number | null;
+    exchangeRate?: number | null;
+    exchangeRateDate?: string | null;
+    exchangeRateProvider?: string | null;
     totalAmount: number | null;
     netAmount: number | null;
     vatAmount: number | null;
