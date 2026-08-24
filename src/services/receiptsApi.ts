@@ -70,6 +70,7 @@ type ReceiptApiResponse = {
     taxBreakdown: NonNullable<ExpenseDocument['taxBreakdown']>;
     notes: string[];
     createdAt: string;
+    updatedAt: string;
   }>;
 };
 
@@ -320,7 +321,7 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     lineItems: receipt.lineItems,
     taxBreakdown: receipt.taxBreakdown,
     createdAt: receipt.createdAt,
-    updatedAt: receipt.createdAt,
+    updatedAt: receipt.updatedAt ?? receipt.createdAt,
   };
 }
 

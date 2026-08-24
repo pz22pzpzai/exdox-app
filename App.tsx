@@ -736,7 +736,7 @@ const mergeWorkspaceDocuments = (
       previewImageUris: mergedLocalDocument.previewImageUris ?? document.previewImageUris,
       source: mergedLocalDocument.source,
       createdAt: mergedLocalDocument.createdAt,
-      updatedAt: mergedLocalDocument.updatedAt ?? document.updatedAt,
+      updatedAt: document.updatedAt ?? mergedLocalDocument.updatedAt,
     };
   });
 
@@ -2727,7 +2727,6 @@ export default function App() {
               mode="reports"
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
-              onOpenDocument={setSelectedDocumentId}
             />
           )}
           {activeTab === 'more' && (
@@ -3206,7 +3205,6 @@ function ClaimsScreen({
   mode,
   onCreateClaim,
   onAttachDocument,
-  onOpenDocument,
 }: {
   claims: Claim[];
   documents: ExpenseDocument[];
@@ -3215,13 +3213,14 @@ function ClaimsScreen({
   mode: 'claims' | 'reports';
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
-  onOpenDocument?: (documentId: string) => void;
 }) {
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
+  const [expandedPaymentRoundId, setExpandedPaymentRoundId] = useState<string | null>(null);
 
   const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
   const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
   const visibleClaims = mode === 'reports' ? processedClaims : openClaims;
+  const paymentRounds = groupReimbursementDocumentsByPaymentRound(reimbursementDocuments);
 
   if (!visibleClaims.length && !(mode === 'reports' && reimbursementDocuments.length)) {
     return (
@@ -3286,24 +3285,24 @@ function ClaimsScreen({
         </>
       ) : null}
 
-      {mode === 'reports' && reimbursementDocuments.length ? (
+      {mode === 'reports' && paymentRounds.length ? (
         <>
           <View style={styles.claimSectionHeading}>
             <View>
-              <Text style={styles.claimSectionTitle}>Reimbursement archive</Text>
-              <Text style={styles.claimSectionCopy}>
-                Expenses your employer has included in payment processing or marked as paid.
-              </Text>
+              <Text style={styles.claimSectionTitle}>Payment rounds</Text>
+              <Text style={styles.claimSectionCopy}>Select a total to view the receipts in that payment round.</Text>
             </View>
             <Ionicons name="wallet-outline" size={22} color={colors.dotMint} />
           </View>
           <View style={styles.claimMonthGroup}>
-            {reimbursementDocuments.map((document) => (
-              <DocumentRow
-                key={document.id}
-                document={document}
-                compact
-                onPress={() => onOpenDocument?.(document.id)}
+            {paymentRounds.map((round) => (
+              <PaymentRoundCard
+                key={round.id}
+                round={round}
+                expanded={expandedPaymentRoundId === round.id}
+                onToggle={() =>
+                  setExpandedPaymentRoundId((current) => (current === round.id ? null : round.id))
+                }
               />
             ))}
           </View>
@@ -3336,6 +3335,81 @@ function ClaimsScreen({
             </View>
           ))}
         </>
+      ) : null}
+    </View>
+  );
+}
+
+type PaymentRound = {
+  id: string;
+  processedAt: string;
+  currency: string;
+  total: number;
+  documents: ExpenseDocument[];
+};
+
+function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[]): PaymentRound[] {
+  const rounds = new Map<string, PaymentRound>();
+
+  documents.forEach((document) => {
+    // The server changes every receipt in one payment batch in the same update operation.
+    const processedAt = document.updatedAt ?? document.createdAt;
+    const key = `${document.status}:${document.currency}:${processedAt}`;
+    const round = rounds.get(key) ?? {
+      id: key,
+      processedAt,
+      currency: document.currency,
+      total: 0,
+      documents: [],
+    };
+    round.total += document.amount;
+    round.documents.push(document);
+    rounds.set(key, round);
+  });
+
+  return [...rounds.values()]
+    .map((round) => ({
+      ...round,
+      total: Number(round.total.toFixed(2)),
+      documents: [...round.documents].sort((left, right) => right.date.localeCompare(left.date)),
+    }))
+    .sort((left, right) => right.processedAt.localeCompare(left.processedAt));
+}
+
+function PaymentRoundCard({
+  round,
+  expanded,
+  onToggle,
+}: {
+  round: PaymentRound;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <View style={styles.paymentRoundCard}>
+      <Pressable
+        style={[styles.paymentRoundHeader, expanded && styles.paymentRoundHeaderExpanded]}
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${formatDate(round.processedAt)}, ${formatCurrency(round.total, round.currency)}, ${round.documents.length} receipts`}
+      >
+        <Text style={styles.paymentRoundDate}>{formatDate(round.processedAt)}</Text>
+        <View style={styles.paymentRoundTotalWrap}>
+          <Text style={styles.paymentRoundTotal}>{formatCurrency(round.total, round.currency)}</Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={19} color={colors.royalBlueDark} />
+        </View>
+      </Pressable>
+
+      {expanded ? (
+        <View style={styles.paymentRoundExpanded}>
+          {round.documents.map((document) => (
+            <View key={document.id} style={styles.paymentRoundReceiptRow}>
+              <Text style={styles.paymentRoundReceiptDate}>{formatDate(document.date)}</Text>
+              <Text style={styles.paymentRoundReceiptAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+            </View>
+          ))}
+        </View>
       ) : null}
     </View>
   );
@@ -5860,6 +5934,59 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: colors.lightBorder,
+  },
+  paymentRoundCard: {
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  paymentRoundHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  paymentRoundHeaderExpanded: {
+    backgroundColor: '#F4F8FC',
+  },
+  paymentRoundDate: {
+    color: colors.nearBlack,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  paymentRoundTotalWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paymentRoundTotal: {
+    color: colors.royalBlueDark,
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  paymentRoundExpanded: {
+    borderTopWidth: 1,
+    borderTopColor: colors.band,
+  },
+  paymentRoundReceiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.band,
+  },
+  paymentRoundReceiptDate: {
+    color: colors.dateText,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  paymentRoundReceiptAmount: {
+    color: colors.nearBlack,
+    fontSize: 16,
+    fontWeight: '800',
   },
   claimSectionHeading: {
     flexDirection: 'row',
