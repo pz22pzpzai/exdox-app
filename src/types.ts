@@ -28,6 +28,15 @@ export interface ExpenseDocument {
   vatAmount: number;
   taxRateApplied: UkTaxRate;
   taxAmount: number;
+  foreignTaxAmount?: number | null;
+  foreignTaxLabel?: string | null;
+  ukVatTreatment?:
+    | 'not_applicable'
+    | 'no_uk_vat_to_reclaim'
+    | 'uk_vat_included'
+    | 'reverse_charge_required'
+    | 'import_vat'
+    | 'accountant_review';
   currency: string;
   baseCurrency?: string;
   baseAmount?: number | null;

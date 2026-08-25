@@ -4787,6 +4787,7 @@ function DocumentSheet({
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
   const effectiveTaxRate = vatTrackingEnabled ? selectedTaxRate : 'No VAT';
+  const foreignCurrencyDocument = document.currency.toUpperCase() !== 'GBP';
   const reimbursementArchived = isReimbursementArchiveDocument(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
@@ -4886,8 +4887,24 @@ function DocumentSheet({
             <View style={styles.taxEditorRow}>
               <TaxAmountField label="Total" value={totalInput} onChangeText={setTotalInput} />
               {vatTrackingEnabled ? <TaxAmountField label="Net" value={netInput} onChangeText={setNetInput} /> : null}
-              {vatTrackingEnabled ? <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} /> : null}
+              {vatTrackingEnabled && !foreignCurrencyDocument ? <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} /> : null}
             </View>
+            {foreignCurrencyDocument ? (
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Foreign tax</Text>
+                <Text style={styles.reviewFieldValue}>
+                  {document.foreignTaxAmount == null
+                    ? 'Not shown on document'
+                    : formatCurrency(document.foreignTaxAmount, document.currency)}
+                </Text>
+              </View>
+            ) : null}
+            {foreignCurrencyDocument ? (
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>UK VAT treatment</Text>
+                <Text style={styles.reviewFieldValue}>Set by your business admin</Text>
+              </View>
+            ) : null}
             <View style={styles.taxDropdown}>
               <Text style={styles.taxDropdownLabel}>Currency</Text>
               <View style={styles.taxDropdownValueWrap}>
@@ -4904,7 +4921,7 @@ function DocumentSheet({
                 ))}
               </View>
             </View>
-            {vatTrackingEnabled ? (
+            {vatTrackingEnabled && !foreignCurrencyDocument ? (
               <>
                 <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
                   <Text style={styles.taxDropdownLabel}>Tax rate</Text>

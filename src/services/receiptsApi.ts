@@ -71,6 +71,9 @@ type ReceiptApiResponse = {
     customer: string | null;
     taxRateApplied: ExpenseDocument['taxRateApplied'] | null;
     totalTaxAmount: number | null;
+    foreignTaxAmount: number | null;
+    foreignTaxLabel: string | null;
+    ukVatTreatment: ExpenseDocument['ukVatTreatment'] | null;
     needsReview: boolean;
     confidenceScore: number | null;
     lineItems: NonNullable<ExpenseDocument['lineItems']>;
@@ -306,6 +309,9 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     vatAmount: receipt.vatAmount ?? receipt.totalTaxAmount ?? 0,
     taxRateApplied: receipt.taxRateApplied ?? 'No VAT',
     taxAmount: receipt.totalTaxAmount ?? 0,
+    foreignTaxAmount: receipt.foreignTaxAmount,
+    foreignTaxLabel: receipt.foreignTaxLabel,
+    ukVatTreatment: receipt.ukVatTreatment ?? undefined,
     currency: receipt.currency ?? 'GBP',
     baseCurrency: receipt.baseCurrency ?? 'GBP',
     baseAmount: receipt.baseTotalAmount,
