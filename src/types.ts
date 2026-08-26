@@ -37,6 +37,8 @@ export interface ExpenseDocument {
     | 'reverse_charge_required'
     | 'import_vat'
     | 'accountant_review';
+  reimbursementBatchId?: string | null;
+  reimbursementBatchCreatedAt?: string | null;
   currency: string;
   baseCurrency?: string;
   baseAmount?: number | null;

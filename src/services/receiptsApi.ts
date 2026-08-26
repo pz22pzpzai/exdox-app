@@ -74,6 +74,8 @@ type ReceiptApiResponse = {
     foreignTaxAmount: number | null;
     foreignTaxLabel: string | null;
     ukVatTreatment: ExpenseDocument['ukVatTreatment'] | null;
+    reimbursementBatchId: string | null;
+    reimbursementBatchCreatedAt: string | null;
     needsReview: boolean;
     confidenceScore: number | null;
     lineItems: NonNullable<ExpenseDocument['lineItems']>;
@@ -312,6 +314,8 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     foreignTaxAmount: receipt.foreignTaxAmount,
     foreignTaxLabel: receipt.foreignTaxLabel,
     ukVatTreatment: receipt.ukVatTreatment ?? undefined,
+    reimbursementBatchId: receipt.reimbursementBatchId,
+    reimbursementBatchCreatedAt: receipt.reimbursementBatchCreatedAt,
     currency: receipt.currency ?? 'GBP',
     baseCurrency: receipt.baseCurrency ?? 'GBP',
     baseAmount: receipt.baseTotalAmount,

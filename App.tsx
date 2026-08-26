@@ -3359,9 +3359,13 @@ function groupReimbursementDocumentsByPaymentRound(documents: ExpenseDocument[])
   const rounds = new Map<string, PaymentRound>();
 
   documents.forEach((document) => {
-    // The server changes every receipt in one payment batch in the same update operation.
-    const processedAt = document.updatedAt ?? document.createdAt;
-    const key = `${document.status}:${processedAt}`;
+    const processedAt = document.reimbursementBatchCreatedAt ?? document.updatedAt ?? document.createdAt;
+    const batchId = document.reimbursementBatchId?.trim();
+    // Legacy exports predate persistent batch IDs, so group their records by payment date.
+    const legacyPaymentDate = processedAt.slice(0, 10);
+    const key = batchId
+      ? `batch:${batchId}`
+      : `legacy:${document.status}:${legacyPaymentDate}`;
     const round = rounds.get(key) ?? {
       id: key,
       processedAt,
