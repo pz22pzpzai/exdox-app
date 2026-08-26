@@ -4968,6 +4968,7 @@ function DocumentSheet({
               style={[styles.taxSaveButton, savingValues && styles.taxSaveButtonDisabled]}
               disabled={savingValues}
               onPress={async () => {
+                let valuesSaved = false;
                 const amount = parseMoneyInput(totalInput);
                 const netAmount = vatTrackingEnabled ? parseMoneyInput(netInput) : amount;
                 const vatAmount = vatTrackingEnabled ? parseMoneyInput(vatInput) : 0;
@@ -4990,10 +4991,14 @@ function DocumentSheet({
                   });
                   setSavingValuesProgress(100);
                   await delay(220);
+                  valuesSaved = true;
                 } finally {
                   clearInterval(progressTimer);
                   setSavingValues(false);
                   setSavingValuesProgress(0);
+                }
+                if (valuesSaved) {
+                  Alert.alert('Values saved');
                 }
               }}
             >
