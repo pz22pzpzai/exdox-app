@@ -2721,6 +2721,7 @@ export default function App() {
               mode="claims"
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
+              onOpenDocument={setSelectedDocumentId}
             />
           )}
           {activeTab === 'reports' && (
@@ -2734,6 +2735,7 @@ export default function App() {
               mode="reports"
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
+              onOpenDocument={setSelectedDocumentId}
             />
           )}
           {activeTab === 'more' && (
@@ -3213,6 +3215,7 @@ function ClaimsScreen({
   mode,
   onCreateClaim,
   onAttachDocument,
+  onOpenDocument,
 }: {
   claims: Claim[];
   documents: ExpenseDocument[];
@@ -3221,6 +3224,7 @@ function ClaimsScreen({
   mode: 'claims' | 'reports';
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
+  onOpenDocument: (documentId: string) => void;
 }) {
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
   const [expandedPaymentRoundId, setExpandedPaymentRoundId] = useState<string | null>(null);
@@ -3311,6 +3315,7 @@ function ClaimsScreen({
                 onToggle={() =>
                   setExpandedPaymentRoundId((current) => (current === round.id ? null : round.id))
                 }
+                onOpenDocument={onOpenDocument}
               />
             ))}
           </View>
@@ -3390,10 +3395,12 @@ function PaymentRoundCard({
   round,
   expanded,
   onToggle,
+  onOpenDocument,
 }: {
   round: PaymentRound;
   expanded: boolean;
   onToggle: () => void;
+  onOpenDocument: (documentId: string) => void;
 }) {
   const roundCurrency = round.documents[0]?.baseCurrency ?? 'GBP';
   const roundTotal = formatCurrency(round.total, roundCurrency);
@@ -3417,14 +3424,28 @@ function PaymentRoundCard({
       {expanded ? (
         <View style={styles.paymentRoundExpanded}>
           {round.documents.map((document) => (
-            <View key={document.id} style={styles.paymentRoundReceiptRow}>
-              <Text style={styles.paymentRoundReceiptDate}>{formatDate(document.date)}</Text>
-              <Text style={styles.paymentRoundReceiptAmount}>
-                {document.currency === document.baseCurrency || document.baseAmount == null
-                  ? formatCurrency(document.amount, document.currency)
-                  : `${formatCurrency(document.amount, document.currency)} · ${formatCurrency(document.baseAmount, document.baseCurrency)}`}
-              </Text>
-            </View>
+            <Pressable
+              key={document.id}
+              style={styles.paymentRoundReceiptRow}
+              onPress={() => onOpenDocument(document.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${document.title || document.supplier} details`}
+            >
+              <View style={styles.paymentRoundReceiptDetails}>
+                <Text style={styles.paymentRoundReceiptTitle} numberOfLines={1}>
+                  {document.title || document.supplier}
+                </Text>
+                <Text style={styles.paymentRoundReceiptDate}>{formatDate(document.date)}</Text>
+              </View>
+              <View style={styles.paymentRoundReceiptAction}>
+                <Text style={styles.paymentRoundReceiptAmount}>
+                  {document.currency === document.baseCurrency || document.baseAmount == null
+                    ? formatCurrency(document.amount, document.currency)
+                    : `${formatCurrency(document.amount, document.currency)} · ${formatCurrency(document.baseAmount, document.baseCurrency)}`}
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.royalBlueDark} />
+              </View>
+            </Pressable>
           ))}
         </View>
       ) : null}
@@ -4806,6 +4827,7 @@ function DocumentSheet({
       ? 'This expense has been paid and is retained here for your records.'
       : 'This expense is included in your employer\'s payment processing and is retained here for your records.'
     : extractionStatusText;
+  const documentReference = document.invoiceNumber?.trim() || document.fileName || 'Not available';
 
   return (
     <>
@@ -4850,6 +4872,53 @@ function DocumentSheet({
             </Text>
           ) : null}
           <Text style={styles.documentSheetStatus}>{documentStatusText}</Text>
+          {reimbursementArchived ? (
+            <View style={styles.archivedDocumentDetails}>
+              <Text style={styles.archivedDocumentDetailsHeading}>Item details</Text>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Category</Text>
+                <Text style={styles.reviewFieldValue}>{document.category || 'Uncategorised'}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Type</Text>
+                <Text style={styles.reviewFieldValue}>{document.type === 'invoice' ? 'Invoice' : 'Receipt'}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Owned by</Text>
+                <Text style={styles.reviewFieldValue}>{ownerName}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Date</Text>
+                <Text style={styles.reviewFieldValue}>{formatDate(document.date)}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Document reference</Text>
+                <Text style={styles.reviewFieldValue} numberOfLines={1}>{documentReference}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Supplier</Text>
+                <Text style={styles.reviewFieldValue}>{document.supplier || 'Not available'}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Currency</Text>
+                <Text style={styles.reviewFieldValue}>{document.currency || document.baseCurrency || 'GBP'}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Total amount</Text>
+                <Text style={styles.reviewFieldValue}>{formatCurrency(document.amount, document.currency)}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Tax amount</Text>
+                <Text style={styles.reviewFieldValue}>{formatCurrency(document.vatAmount ?? document.taxAmount, document.currency)}</Text>
+              </View>
+              {document.description ? (
+                <View style={styles.archivedDocumentDescription}>
+                  <Text style={styles.reviewFieldLabel}>Description</Text>
+                  <Text style={styles.archivedDocumentDescriptionValue}>{document.description}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           {!reimbursementArchived ? (
             <>
           <View style={styles.reviewEditor}>
@@ -6088,10 +6157,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.band,
   },
+  paymentRoundReceiptDetails: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  paymentRoundReceiptTitle: {
+    color: colors.nearBlack,
+    fontSize: 16,
+    fontWeight: '700',
+  },
   paymentRoundReceiptDate: {
     color: colors.dateText,
     fontSize: 15,
     fontWeight: '600',
+  },
+  paymentRoundReceiptAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 16,
   },
   paymentRoundReceiptAmount: {
     color: colors.nearBlack,
@@ -6872,6 +6957,32 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 15,
     color: colors.mutedText,
+  },
+  archivedDocumentDetails: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: colors.lightBorder,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.white,
+  },
+  archivedDocumentDetailsHeading: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.nearBlack,
+    backgroundColor: colors.band,
+  },
+  archivedDocumentDescription: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  archivedDocumentDescriptionValue: {
+    fontSize: 16,
+    color: colors.nearBlack,
+    lineHeight: 23,
   },
   reviewEditor: {
     marginTop: 20,
