@@ -5047,10 +5047,10 @@ function DocumentSheet({
                 const vatAmount = vatTrackingEnabled ? parseMoneyInput(vatInput) : 0;
                 setSavingValues(true);
                 setSavingValuesProgress(16);
-                const progressTimer = setInterval(() => {
-                  setSavingValuesProgress((current) => Math.min(86, current + 7));
-                }, 180);
                 try {
+                  // Let the progress panel render before the network save begins.
+                  await delay(90);
+                  setSavingValuesProgress(68);
                   await onUpdateReviewFields({
                     amount,
                     netAmount,
@@ -5066,7 +5066,6 @@ function DocumentSheet({
                   await delay(220);
                   valuesSaved = true;
                 } finally {
-                  clearInterval(progressTimer);
                   setSavingValues(false);
                   setSavingValuesProgress(0);
                 }
@@ -5174,6 +5173,7 @@ function SavingValuesProgress({ visible, progress }: { visible: boolean; progres
           </View>
           <Text style={styles.vaultUploadTitle}>Saving values</Text>
           <Text style={styles.vaultUploadStatus}>Updating this receipt securely...</Text>
+          <ActivityIndicator size="small" color={colors.tealDeep} style={styles.valueSaveSpinner} />
           <View style={styles.vaultUploadTrack}>
             <View style={[styles.vaultUploadFill, { width: `${progress}%` }]} />
           </View>
@@ -6728,6 +6728,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.mutedInk,
     textAlign: 'center',
+  },
+  valueSaveSpinner: {
+    marginTop: 16,
   },
   vaultUploadTrack: {
     width: '100%',
