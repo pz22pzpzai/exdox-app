@@ -1814,6 +1814,44 @@ export default function App() {
     () => appState.documents.find((document) => document.id === selectedDocumentId) ?? null,
     [appState.documents, selectedDocumentId],
   );
+
+  // Report/archive rows may be older than the small background-preview batch.
+  // When one is opened, load its secured image before the read-only details so
+  // the receipt is always shown above its information.
+  useEffect(() => {
+    if (
+      !selectedDocument ||
+      !selectedDocument.cloudReceiptId ||
+      !canHydrateDocumentPreview(selectedDocument) ||
+      canPreviewDocumentInline(selectedDocument)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    void fetchCloudReceiptAssetUrl(selectedDocument.cloudReceiptId)
+      .then((fileUri) => {
+        if (cancelled) {
+          return;
+        }
+        updateState((current) => ({
+          ...current,
+          documents: current.documents.map((document) =>
+            document.id === selectedDocument.id ? { ...document, fileUri } : document,
+          ),
+        }));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          void recordError('report receipt preview', error);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [recordError, selectedDocument?.cloudReceiptId, selectedDocument?.fileUri, selectedDocument?.id]);
+
   const captureReviewDocument = useMemo(
     () => appState.documents.find((document) => document.id === captureReviewDocumentId) ?? null,
     [appState.documents, captureReviewDocumentId],
