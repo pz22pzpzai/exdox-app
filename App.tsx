@@ -426,6 +426,11 @@ const isTransientNetworkError = (error: unknown) => {
   return /unknownhostexception|unable to resolve host|network request failed|failed to fetch|timeout/.test(message);
 };
 
+const isWorkspaceUnavailableError = (error: unknown) =>
+  /current plan does not include (the )?(sales|vault) workspace|workspace is not included in (your )?current plan/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const cloudSyncTimeoutMs = 20_000;
 
@@ -1041,11 +1046,23 @@ export default function App() {
       let costDocuments: ExpenseDocument[] = [];
       let salesDocuments: ExpenseDocument[] = [];
       let remoteClaims: Claim[] = [];
+      const fetchOptionalWorkspace = async (workspaceContext: WorkspaceContext) => {
+        try {
+          return await fetchCloudReceipts(workspaceContext);
+        } catch (error) {
+          // A plan entitlement must not prevent the permitted Costs workspace
+          // from syncing. The server remains authoritative for access control.
+          if (isWorkspaceUnavailableError(error)) {
+            return [] as ExpenseDocument[];
+          }
+          throw error;
+        }
+      };
 
       try {
         [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
           fetchCloudReceipts('cost'),
-          fetchCloudReceipts('sales'),
+          fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
         ]);
       } catch (error) {
@@ -1056,7 +1073,7 @@ export default function App() {
         await delay(1200);
         [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
           fetchCloudReceipts('cost'),
-          fetchCloudReceipts('sales'),
+          fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
         ]);
       }
@@ -1099,7 +1116,7 @@ export default function App() {
 
         [costDocuments, salesDocuments] = await Promise.all([
           fetchCloudReceipts('cost'),
-          fetchCloudReceipts('sales'),
+          fetchOptionalWorkspace('sales'),
         ]);
         if (cloudSyncAttemptRef.current !== attemptId) {
           return;
