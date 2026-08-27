@@ -101,12 +101,15 @@ type ClaimApiResponse = {
   }>;
 };
 
-export async function fetchCloudReceipts(workspaceContext?: WorkspaceContext) {
+export async function fetchCloudReceipts(workspaceContext?: WorkspaceContext, limit = 200) {
   const token = requireSessionToken();
   const searchParams = new URLSearchParams();
   if (workspaceContext) {
     searchParams.set('workspace_context', workspaceContext);
   }
+  // The API permits up to 200 records. The old implicit 50-record limit meant
+  // older receipts simply never reached the phone, even after a successful sync.
+  searchParams.set('limit', String(Math.min(Math.max(limit, 1), 200)));
   const response = await fetch(`${getApiBaseUrl()}/receipts${searchParams.size ? `?${searchParams.toString()}` : ''}`, {
     headers: {
       Authorization: `Bearer ${token}`,

@@ -1061,9 +1061,35 @@ export default function App() {
         ]);
       }
 
-      const currentDocuments = appState.documents;
+      // Ignore a slower, older refresh once a newer refresh has begun. Without
+      // this guard, overlapping refreshes could merge a stale list over the
+      // current one and make recently synced items disappear temporarily.
+      if (cloudSyncAttemptRef.current !== attemptId) {
+        return;
+      }
+
+      // Always use the latest state. A sync can start while an upload or edit is
+      // completing, and a render-time snapshot can otherwise overwrite that work.
+      const currentDocuments = appStateRef.current.documents;
       const pendingCostSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, costDocuments);
       const pendingSalesSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, salesDocuments);
+
+      const applyCloudWorkspace = (nextCostDocuments: ExpenseDocument[], nextSalesDocuments: ExpenseDocument[]) => {
+        const nextDocuments = [...nextCostDocuments, ...nextSalesDocuments].sort((left, right) =>
+          right.createdAt.localeCompare(left.createdAt),
+        );
+        updateState((current) => ({
+          ...current,
+          documents: mergeWorkspaceDocuments(current.documents, nextDocuments, deletedCloudReceiptIdsRef.current),
+          claims: remoteClaims,
+        }));
+        return nextDocuments;
+      };
+
+      // Apply the cloud list before doing any optional metadata or image work.
+      // Previously the UI waited for an asset-url request for every receipt,
+      // making a successful sync look empty and causing a large render burst.
+      let mergedDocuments = applyCloudWorkspace(costDocuments, salesDocuments);
 
       if (pendingCostSupplierUpdates.length || pendingSalesSupplierUpdates.length) {
         await Promise.all([
@@ -1075,50 +1101,62 @@ export default function App() {
           fetchCloudReceipts('cost'),
           fetchCloudReceipts('sales'),
         ]);
+        if (cloudSyncAttemptRef.current !== attemptId) {
+          return;
+        }
+        mergedDocuments = applyCloudWorkspace(costDocuments, salesDocuments);
       }
 
-      const mergedDocuments = [...costDocuments, ...salesDocuments].sort((left, right) =>
-        right.createdAt.localeCompare(left.createdAt),
-      );
-      const hydratedDocuments = await Promise.all(
-        mergedDocuments.map(async (document) => {
-          if (!canHydrateDocumentPreview(document) || !document.cloudReceiptId) {
-            return document;
-          }
+      if (cloudSyncAttemptRef.current === attemptId) {
+        setCloudSyncState('synced');
+      }
 
-          const existingDocument = currentDocuments.find(
+      // Previews are an enhancement, not a prerequisite for data sync. Hydrate a
+      // small newest-first batch after the list is visible to keep scrolling smooth.
+      const previewCandidates = mergedDocuments
+        .filter((document) => {
+          if (!canHydrateDocumentPreview(document) || !document.cloudReceiptId) {
+            return false;
+          }
+          const existingDocument = appStateRef.current.documents.find(
             (current) =>
               current.cloudReceiptId === document.cloudReceiptId &&
               current.fileUri &&
               canPreviewDocumentInline(current),
           );
-          if (existingDocument?.fileUri) {
-            return {
-              ...document,
-              fileUri: existingDocument.fileUri,
-            };
-          }
+          return !existingDocument?.fileUri;
+        })
+        .slice(0, 6);
 
+      void Promise.all(
+        previewCandidates.map(async (document) => {
           try {
-            const fileUri = await fetchCloudReceiptAssetUrl(document.cloudReceiptId);
             return {
-              ...document,
-              fileUri,
+              receiptId: document.cloudReceiptId!,
+              fileUri: await fetchCloudReceiptAssetUrl(document.cloudReceiptId!),
             };
           } catch {
-            return document;
+            return null;
           }
         }),
-      );
-
-      updateState((current) => ({
-        ...current,
-        documents: mergeWorkspaceDocuments(current.documents, hydratedDocuments, deletedCloudReceiptIdsRef.current),
-        claims: remoteClaims,
-      }));
-      if (cloudSyncAttemptRef.current === attemptId) {
-        setCloudSyncState('synced');
-      }
+      ).then((previewUpdates) => {
+        if (cloudSyncAttemptRef.current !== attemptId) {
+          return;
+        }
+        const previewsByReceiptId = new Map(
+          previewUpdates.filter((preview): preview is { receiptId: number; fileUri: string } => Boolean(preview)).map((preview) => [preview.receiptId, preview.fileUri]),
+        );
+        if (!previewsByReceiptId.size) {
+          return;
+        }
+        updateState((current) => ({
+          ...current,
+          documents: current.documents.map((document) => {
+            const fileUri = document.cloudReceiptId ? previewsByReceiptId.get(document.cloudReceiptId) : undefined;
+            return fileUri ? { ...document, fileUri } : document;
+          }),
+        }));
+      });
     } catch (error) {
       if (cloudSyncAttemptRef.current !== attemptId) {
         return;
