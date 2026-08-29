@@ -6315,21 +6315,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   claimSectionHeading: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
   },
   claimSectionIcon: {
-    flexShrink: 0,
-    marginLeft: 14,
-    marginRight: 40,
+    position: 'absolute',
+    right: 42,
+    top: 36,
   },
   paymentRoundHeadingCopy: {
     flex: 1,
-    paddingRight: 8,
+    paddingRight: 70,
   },
   claimSectionTitle: {
     fontSize: 18,
