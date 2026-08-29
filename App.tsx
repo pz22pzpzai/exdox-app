@@ -638,7 +638,7 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
   ].map(normalizeDuplicateComparisonText).filter((value) => value.length >= 4);
   const unreadableLabelMatch =
     extractionLooksUnreadable(localDocument) &&
-    extractionLooksUnreadable(cloudDocument) &&
+    isUnreadableCloudReviewItem(cloudDocument) &&
     localIdentityCandidates.some((localValue) =>
       cloudIdentityCandidates.some(
         (cloudValue) => localValue === cloudValue || localValue.includes(cloudValue) || cloudValue.includes(localValue),
@@ -654,14 +654,29 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
     return false;
   }
 
-  const localCreatedAt = Date.parse(localDocument.createdAt);
-  const cloudCreatedAt = Date.parse(cloudDocument.createdAt);
-  if (!Number.isFinite(localCreatedAt) || !Number.isFinite(cloudCreatedAt)) {
-    return false;
+  // A failed upload with the same source identity is never useful as a second
+  // row. Older app versions did not retain the cloud receipt ID, so do not
+  // require a narrow timing match when cleaning up those persisted placeholders.
+  if (unreadableLabelMatch) {
+    return true;
   }
 
-  return Math.abs(localCreatedAt - cloudCreatedAt) <= 1000 * 60 * 15;
+  const localCreatedAt = Date.parse(localDocument.createdAt);
+  const cloudCreatedAt = Date.parse(cloudDocument.createdAt);
+  return (
+    Number.isFinite(localCreatedAt) &&
+    Number.isFinite(cloudCreatedAt) &&
+    Math.abs(localCreatedAt - cloudCreatedAt) <= 1000 * 60 * 15
+  );
 };
+
+const isUnreadableCloudReviewItem = (document: ExpenseDocument) =>
+  extractionLooksUnreadable(document) ||
+  (document.needsReview === true &&
+    (document.amount ?? 0) === 0 &&
+    /unable to read|could not read|no receipt visible|no invoice visible|not clearly visible/.test(
+      (document.notes ?? '').toLowerCase(),
+    ));
 
 const extractionLooksLikeDuplicateUpload = (input: { notes?: string | null }) =>
   /upload error:\s*duplicate receipt|duplicate receipt|error:\s*this is a duplicate/.test(
@@ -1648,6 +1663,29 @@ export default function App() {
           }
         }
 
+        return;
+      }
+      if (
+        authSession &&
+        extractedWithDuplicateHint.cloudReceiptId &&
+        nextDocument &&
+        resolveExtractedDraftStatus(extractedWithDuplicateHint) === 'failed'
+      ) {
+        // The API has already created the authoritative unreadable-review item.
+        // Do not save generated fallback values back to it first: a rejected
+        // update used to skip the sync and leave a local placeholder beside the
+        // cloud item. Merge the known receipt ID immediately instead.
+        try {
+          const cloudDocuments = await fetchCloudReceipts(workspaceContext);
+          updateState((current) => ({
+            ...current,
+            documents: mergeWorkspaceDocuments(current.documents, cloudDocuments, deletedCloudReceiptIdsRef.current),
+          }));
+          await recordDiagnostic(source, `Merged unreadable upload with cloud receipt for ${fileName}`);
+        } catch (error) {
+          await recordDiagnostic(source, `Unreadable upload will merge on the next cloud sync for ${fileName}`);
+          void recordError('unreadable upload reconciliation', error);
+        }
         return;
       }
       if (authSession && extractedWithDuplicateHint.cloudReceiptId && nextDocument) {
