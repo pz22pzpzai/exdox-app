@@ -624,11 +624,20 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
 
   const localFileNameCandidates = getDocumentFileNameCandidates(localDocument);
   const cloudFileName = normalizeDocumentFileName(cloudDocument.fileName);
+  const unreadableLabelMatch =
+    /unable to read receipt/.test((localDocument.notes ?? '').toLowerCase()) &&
+    /unable to read receipt/.test((cloudDocument.notes ?? '').toLowerCase()) &&
+    (() => {
+      const localLabel = normalizeDuplicateComparisonText(localDocument.title || localDocument.supplier);
+      const cloudLabel = normalizeDuplicateComparisonText(cloudDocument.title || cloudDocument.supplier);
+      return Boolean(localLabel && cloudLabel && (localLabel.includes(cloudLabel) || cloudLabel.includes(localLabel)));
+    })();
   if (
-    !cloudFileName ||
+    !unreadableLabelMatch &&
+    (!cloudFileName ||
     !localFileNameCandidates.some(
       (candidate) => candidate === cloudFileName || candidate.endsWith(cloudFileName) || cloudFileName.endsWith(candidate),
-    )
+    ))
   ) {
     return false;
   }
