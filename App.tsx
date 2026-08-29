@@ -3368,7 +3368,7 @@ function ClaimsScreen({
       {mode === 'reports' && processedClaims.length ? (
         <>
           <View style={styles.claimSectionHeading}>
-            <View>
+            <View style={styles.paymentRoundHeadingCopy}>
               <Text style={styles.claimSectionTitle}>Processed claims</Text>
               <Text style={styles.claimSectionCopy}>Claims approved or paid by your employer.</Text>
             </View>
@@ -6323,7 +6323,12 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   claimSectionIcon: {
-    marginRight: 28,
+    flexShrink: 0,
+    marginLeft: 14,
+  },
+  paymentRoundHeadingCopy: {
+    flex: 1,
+    paddingRight: 8,
   },
   claimSectionTitle: {
     fontSize: 18,
