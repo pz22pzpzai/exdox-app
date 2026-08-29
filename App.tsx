@@ -3398,7 +3398,6 @@ function ClaimsScreen({
               <Text style={styles.claimSectionTitle}>Payment rounds</Text>
               <Text style={styles.claimSectionCopy}>Select a total to view the receipts in that payment round.</Text>
             </View>
-            <Ionicons name="wallet-outline" size={22} color={colors.dotMint} style={styles.claimSectionIcon} />
           </View>
           <View style={styles.claimMonthGroup}>
             {paymentRounds.map((round) => (
@@ -4074,7 +4073,12 @@ function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; on
 
   return (
     <Pressable style={[styles.statusPill, tone]} onPress={onPress}>
-      <Text style={[styles.statusPillText, status === 'awaiting_review' && styles.statusPillTextReview]}>{label}</Text>
+      <Text
+        numberOfLines={1}
+        style={[styles.statusPillText, status === 'awaiting_review' && styles.statusPillTextReview]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -6098,7 +6102,7 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
   },
   documentRight: {
-    width: 92,
+    width: 120,
     flexShrink: 0,
     alignItems: 'flex-end',
     gap: 12,
@@ -6109,9 +6113,11 @@ const styles = StyleSheet.create({
     color: colors.dateText,
   },
   statusPill: {
+    minWidth: 112,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 9,
+    alignItems: 'center',
   },
   statusPillText: {
     fontSize: 14,
@@ -6321,11 +6327,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
-  },
-  claimSectionIcon: {
-    position: 'absolute',
-    right: 42,
-    top: 36,
   },
   paymentRoundHeadingCopy: {
     flex: 1,
