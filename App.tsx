@@ -2,6 +2,7 @@ import { memo, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, use
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState as RNAppState,
   Dimensions,
   FlatList,
@@ -5278,19 +5279,23 @@ function SavingValuesProgress({ visible, progress }: { visible: boolean; progres
 }
 
 const SyncingBannerLabel = memo(function SyncingBannerLabel() {
-  const [dotCount, setDotCount] = useState(1);
+  const dotsOpacity = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setDotCount((current) => (current === 4 ? 1 : current + 1));
-    }, 450);
-    return () => clearInterval(timer);
-  }, []);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dotsOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(dotsOpacity, { toValue: 0.35, duration: 500, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [dotsOpacity]);
 
   return (
     <View style={styles.syncBannerStatus} accessibilityLabel="Syncing with Exdox">
       <Text style={styles.syncBannerStaticText}>Syncing with Exdox</Text>
-      <Text style={styles.syncBannerDots}>{'.'.repeat(dotCount)}</Text>
+      <Animated.Text style={[styles.syncBannerDots, { opacity: dotsOpacity }]}>...</Animated.Text>
     </View>
   );
 });
@@ -6318,7 +6323,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   claimSectionIcon: {
-    marginRight: 12,
+    marginRight: 28,
   },
   claimSectionTitle: {
     fontSize: 18,
