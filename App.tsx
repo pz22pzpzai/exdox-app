@@ -624,14 +624,26 @@ const isLikelyTimedOutUploadDuplicate = (localDocument: ExpenseDocument, cloudDo
 
   const localFileNameCandidates = getDocumentFileNameCandidates(localDocument);
   const cloudFileName = normalizeDocumentFileName(cloudDocument.fileName);
+  const localIdentityCandidates = [
+    localDocument.title,
+    localDocument.supplier,
+    localDocument.invoiceNumber,
+    localDocument.fileName,
+  ].map(normalizeDuplicateComparisonText).filter((value) => value.length >= 4);
+  const cloudIdentityCandidates = [
+    cloudDocument.title,
+    cloudDocument.supplier,
+    cloudDocument.invoiceNumber,
+    cloudDocument.fileName,
+  ].map(normalizeDuplicateComparisonText).filter((value) => value.length >= 4);
   const unreadableLabelMatch =
-    /unable to read receipt/.test((localDocument.notes ?? '').toLowerCase()) &&
-    /unable to read receipt/.test((cloudDocument.notes ?? '').toLowerCase()) &&
-    (() => {
-      const localLabel = normalizeDuplicateComparisonText(localDocument.title || localDocument.supplier);
-      const cloudLabel = normalizeDuplicateComparisonText(cloudDocument.title || cloudDocument.supplier);
-      return Boolean(localLabel && cloudLabel && (localLabel.includes(cloudLabel) || cloudLabel.includes(localLabel)));
-    })();
+    extractionLooksUnreadable(localDocument) &&
+    extractionLooksUnreadable(cloudDocument) &&
+    localIdentityCandidates.some((localValue) =>
+      cloudIdentityCandidates.some(
+        (cloudValue) => localValue === cloudValue || localValue.includes(cloudValue) || cloudValue.includes(localValue),
+      ),
+    );
   if (
     !unreadableLabelMatch &&
     (!cloudFileName ||

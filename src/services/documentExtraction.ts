@@ -153,7 +153,15 @@ class LocalMockExtractionService implements DocumentExtractionService {
       }
 
       if (shouldTreatPayloadAsUnreadable(payload.document)) {
-        return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt');
+        return {
+          ...buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt'),
+          cloudReceiptId: payload.receiptId,
+          storageKey: payload.storage.key,
+          storageBucket: payload.storage.bucket,
+          workspaceContext: payload.workspaceContext,
+          paymentMethod: payload.options.paymentMethod,
+          extractionOutcome: 'failed',
+        };
       }
 
       return {
