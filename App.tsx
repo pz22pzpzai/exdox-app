@@ -6325,6 +6325,7 @@ const styles = StyleSheet.create({
   claimSectionIcon: {
     flexShrink: 0,
     marginLeft: 14,
+    marginRight: 40,
   },
   paymentRoundHeadingCopy: {
     flex: 1,
