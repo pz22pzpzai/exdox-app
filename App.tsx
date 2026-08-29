@@ -2766,13 +2766,13 @@ export default function App() {
             ]}
           >
             {cloudSyncState === 'synced' ? <Ionicons name="checkmark-circle" size={16} color={colors.dotMint} /> : null}
-            <Text style={styles.syncBannerText}>
-              {cloudSyncState === 'syncing'
-                ? 'Syncing with Exdox...'
-                : cloudSyncState === 'synced'
-                  ? 'Synced with Exdox'
-                  : cloudSyncError ?? 'Cloud sync failed.'}
-            </Text>
+            {cloudSyncState === 'syncing' ? (
+              <SyncingBannerLabel />
+            ) : (
+              <Text style={styles.syncBannerText}>
+                {cloudSyncState === 'synced' ? 'Synced with Exdox' : cloudSyncError ?? 'Cloud sync failed.'}
+              </Text>
+            )}
             {cloudSyncState === 'failed' ? (
               <Pressable
                 accessibilityRole="button"
@@ -5277,6 +5277,24 @@ function SavingValuesProgress({ visible, progress }: { visible: boolean; progres
   );
 }
 
+const SyncingBannerLabel = memo(function SyncingBannerLabel() {
+  const [dotCount, setDotCount] = useState(1);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDotCount((current) => (current === 4 ? 1 : current + 1));
+    }, 450);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <View style={styles.syncBannerStatus} accessibilityLabel="Syncing with Exdox">
+      <Text style={styles.syncBannerText}>Syncing with Exdox</Text>
+      <Text style={styles.syncBannerDots}>{'.'.repeat(dotCount)}</Text>
+    </View>
+  );
+});
+
 function TaxAmountField({
   label,
   value,
@@ -5744,6 +5762,16 @@ const styles = StyleSheet.create({
   syncBannerText: {
     flex: 1,
     marginLeft: 8,
+    color: colors.mutedText,
+    fontSize: 12,
+  },
+  syncBannerStatus: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncBannerDots: {
+    width: 28,
     color: colors.mutedText,
     fontSize: 12,
   },
