@@ -3397,7 +3397,7 @@ function ClaimsScreen({
               <Text style={styles.claimSectionTitle}>Payment rounds</Text>
               <Text style={styles.claimSectionCopy}>Select a total to view the receipts in that payment round.</Text>
             </View>
-            <Ionicons name="wallet-outline" size={22} color={colors.dotMint} />
+            <Ionicons name="wallet-outline" size={22} color={colors.dotMint} style={styles.claimSectionIcon} />
           </View>
           <View style={styles.claimMonthGroup}>
             {paymentRounds.map((round) => (
@@ -5289,7 +5289,7 @@ const SyncingBannerLabel = memo(function SyncingBannerLabel() {
 
   return (
     <View style={styles.syncBannerStatus} accessibilityLabel="Syncing with Exdox">
-      <Text style={styles.syncBannerText}>Syncing with Exdox</Text>
+      <Text style={styles.syncBannerStaticText}>Syncing with Exdox</Text>
       <Text style={styles.syncBannerDots}>{'.'.repeat(dotCount)}</Text>
     </View>
   );
@@ -5770,8 +5770,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  syncBannerStaticText: {
+    color: colors.mutedText,
+    fontSize: 12,
+  },
   syncBannerDots: {
-    width: 28,
+    minWidth: 28,
+    marginLeft: 2,
     color: colors.mutedText,
     fontSize: 12,
   },
@@ -6311,6 +6316,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
+  },
+  claimSectionIcon: {
+    marginRight: 12,
   },
   claimSectionTitle: {
     fontSize: 18,
