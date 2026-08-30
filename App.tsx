@@ -30,6 +30,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { seedState } from './src/data/seed';
 import { loginWithEmail } from './src/services/auth';
@@ -84,6 +85,15 @@ type MainTab = 'costs' | 'sales' | 'claims' | 'reports' | 'more';
 type MoreSheetTarget = 'capture_actions';
 type CameraCaptureMode = 'single' | 'multiple' | 'combine';
 type ArchiveTarget = 'cost' | 'sales';
+
+const appTutorialSteps: Array<{ tab: MainTab; icon: keyof typeof Ionicons.glyphMap; title: string; copy: string }> = [
+  { tab: 'costs', icon: 'receipt-outline', title: 'Welcome to Exdox', copy: 'This is Purchases: your individual costs, receipts, and supplier bills. Start here whenever you spend for work.' },
+  { tab: 'more', icon: 'add-circle-outline', title: 'Capture a document', copy: 'Use Upload at the bottom to photograph or import a receipt or invoice. Exdox extracts the key details so you can check them.' },
+  { tab: 'costs', icon: 'checkmark-circle-outline', title: 'Review your purchases', copy: 'Open a purchase to check supplier, date, amount, VAT, category, and payment method. Mark it reviewed when it is correct.' },
+  { tab: 'sales', icon: 'briefcase-outline', title: 'Keep sales separate', copy: 'Sales is for invoices and income evidence. It stays separate from business costs so records remain clear.' },
+  { tab: 'claims', icon: 'card-outline', title: 'Claim back personal spend', copy: 'Expense Claims groups purchases you paid for personally. Select those purchases, create one claim, and send it to your employer for review.' },
+  { tab: 'reports', icon: 'bar-chart-outline', title: 'Track completed payments', copy: 'Reports shows claims and payment rounds once they have been approved or paid. You are ready to use Exdox.' },
+];
 type SettingsPanelTarget =
   | 'business_admin'
   | 'logins'
@@ -1089,6 +1099,8 @@ export default function App() {
   const [filterVisible, setFilterVisible] = useState(false);
   const [settingsPanelTarget, setSettingsPanelTarget] = useState<SettingsPanelTarget | null>(null);
   const [claimComposerVisible, setClaimComposerVisible] = useState(false);
+  const [tutorialVisible, setTutorialVisible] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
   const [claimComposerSubmitting, setClaimComposerSubmitting] = useState(false);
   const [claimTitleInput, setClaimTitleInput] = useState('');
   const [claimStartDateInput, setClaimStartDateInput] = useState(new Date().toISOString().slice(0, 10));
@@ -1352,6 +1364,9 @@ export default function App() {
     const nextState = savedState ?? seedState;
     appStateRef.current = nextState;
     setAppState(nextState);
+    const tutorialSeen = await AsyncStorage.getItem(`exdox-onboarding-v1-${session.user.id}`);
+    setTutorialStep(0);
+    setTutorialVisible(!tutorialSeen);
     try {
       const organisationSettings = await fetchOrganisationSettings();
       updateState((current) => ({
@@ -1362,6 +1377,23 @@ export default function App() {
       void recordError('organisation settings', error);
     }
     await syncCloudWorkspace(session);
+  });
+
+  const finishTutorial = useEffectEvent(async () => {
+    if (authSession) {
+      await AsyncStorage.setItem(`exdox-onboarding-v1-${authSession.user.id}`, 'complete');
+    }
+    setTutorialVisible(false);
+  });
+
+  const advanceTutorial = useEffectEvent(() => {
+    const nextStep = tutorialStep + 1;
+    if (nextStep >= appTutorialSteps.length) {
+      void finishTutorial();
+      return;
+    }
+    setTutorialStep(nextStep);
+    setActiveTab(appTutorialSteps[nextStep].tab);
   });
 
   const signInWithFingerprint = useEffectEvent(async () => {
@@ -3077,6 +3109,13 @@ export default function App() {
           onUsePdf={handlePickPdf}
         />
 
+        <FirstUseTutorial
+          visible={tutorialVisible}
+          step={tutorialStep}
+          onNext={advanceTutorial}
+          onSkip={() => void finishTutorial()}
+        />
+
         <MoreSheet
           target={sheetTarget}
           onClose={() => setSheetTarget(null)}
@@ -3871,6 +3910,27 @@ function ClaimReportCard({
         </View>
       ) : null}
     </View>
+  );
+}
+
+function FirstUseTutorial({ visible, step, onNext, onSkip }: { visible: boolean; step: number; onNext: () => void; onSkip: () => void }) {
+  if (!visible) return null;
+  const current = appTutorialSteps[step] ?? appTutorialSteps[0];
+  const lastStep = step === appTutorialSteps.length - 1;
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onSkip}>
+      <View style={styles.tutorialBackdrop}>
+        <View style={styles.tutorialCard}>
+          <View style={styles.tutorialIcon}><Ionicons name={current.icon} size={34} color={colors.white} /></View>
+          <Text style={styles.tutorialProgress}>{`${step + 1} of ${appTutorialSteps.length}`}</Text>
+          <Text style={styles.tutorialTitle}>{current.title}</Text>
+          <Text style={styles.tutorialCopy}>{current.copy}</Text>
+          <View style={styles.tutorialDots}>{appTutorialSteps.map((_, index) => <View key={index} style={[styles.tutorialDot, index === step && styles.tutorialDotActive]} />)}</View>
+          <Pressable style={styles.tutorialPrimary} onPress={onNext}><Text style={styles.tutorialPrimaryText}>{lastStep ? 'Start using Exdox' : 'Next'}</Text></Pressable>
+          {!lastStep ? <Pressable style={styles.tutorialSkip} onPress={onSkip}><Text style={styles.tutorialSkipText}>Skip tour</Text></Pressable> : null}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -8176,6 +8236,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.white,
   },
+  tutorialBackdrop: { flex: 1, backgroundColor: 'rgba(9, 27, 71, 0.72)', justifyContent: 'center', padding: 26 },
+  tutorialCard: { backgroundColor: colors.white, borderRadius: 28, padding: 26, alignItems: 'center' },
+  tutorialIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.royalBlueDark, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  tutorialProgress: { fontSize: 13, fontWeight: '700', color: colors.mutedText, textTransform: 'uppercase', letterSpacing: 0.8 },
+  tutorialTitle: { marginTop: 10, fontSize: 25, lineHeight: 31, fontWeight: '700', color: colors.nearBlack, textAlign: 'center' },
+  tutorialCopy: { marginTop: 12, fontSize: 16, lineHeight: 23, color: colors.mutedText, textAlign: 'center' },
+  tutorialDots: { flexDirection: 'row', gap: 7, marginTop: 24, marginBottom: 22 },
+  tutorialDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.lightBorder },
+  tutorialDotActive: { width: 22, backgroundColor: colors.dotMint },
+  tutorialPrimary: { width: '100%', borderRadius: 14, backgroundColor: colors.royalBlueDark, paddingVertical: 15, alignItems: 'center' },
+  tutorialPrimaryText: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  tutorialSkip: { marginTop: 15, padding: 6 },
+  tutorialSkipText: { fontSize: 15, fontWeight: '700', color: colors.royalBlueDark },
   analyticsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
