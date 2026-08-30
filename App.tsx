@@ -27,6 +27,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Camera, CameraView } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -417,6 +418,42 @@ const canPreviewDocumentInline = (
 
 const canHydrateDocumentPreview = (document: Pick<ExpenseDocument, 'fileName'>) =>
   !pdfDocumentPattern.test(document.fileName) && Boolean(document.fileName);
+
+const isRemotePreviewUri = (uri: string | undefined) => /^https?:\/\//i.test(uri ?? '');
+
+const cacheCloudPreview = async ({
+  receiptId,
+  fileName,
+  remoteUri,
+}: {
+  receiptId: number;
+  fileName: string;
+  remoteUri: string;
+}) => {
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) {
+    return remoteUri;
+  }
+
+  const extension = (fileName.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+  const previewDirectory = `${cacheDirectory}exdox-receipt-previews/`;
+  const previewPath = `${previewDirectory}${receiptId}.${extension}`;
+
+  try {
+    const existing = await FileSystem.getInfoAsync(previewPath);
+    if (existing.exists) {
+      return previewPath;
+    }
+
+    await FileSystem.makeDirectoryAsync(previewDirectory, { intermediates: true });
+    await FileSystem.downloadAsync(remoteUri, previewPath);
+    return previewPath;
+  } catch {
+    // A signed cloud URL is still a useful immediate fallback if local caching
+    // is unavailable on this device.
+    return remoteUri;
+  }
+};
 
 const isTransientNetworkError = (error: unknown) => {
   const message =
@@ -1165,8 +1202,9 @@ export default function App() {
         setCloudSyncState('synced');
       }
 
-      // Previews are an enhancement, not a prerequisite for data sync. Hydrate a
-      // small newest-first batch after the list is visible to keep scrolling smooth.
+      // Previews are an enhancement, not a prerequisite for data sync. Fetch the
+      // visible list batch after it appears, then cache each image locally so a
+      // short-lived signed URL cannot leave the feed on placeholder thumbnails.
       const previewCandidates = mergedDocuments
         .filter((document) => {
           if (!canHydrateDocumentPreview(document) || !document.cloudReceiptId) {
@@ -1178,16 +1216,21 @@ export default function App() {
               current.fileUri &&
               canPreviewDocumentInline(current),
           );
-          return !existingDocument?.fileUri;
+          return !existingDocument?.fileUri || isRemotePreviewUri(existingDocument.fileUri);
         })
-        .slice(0, 6);
+        .slice(0, 12);
 
       void Promise.all(
         previewCandidates.map(async (document) => {
           try {
+            const remoteUri = await fetchCloudReceiptAssetUrl(document.cloudReceiptId!);
             return {
               receiptId: document.cloudReceiptId!,
-              fileUri: await fetchCloudReceiptAssetUrl(document.cloudReceiptId!),
+              fileUri: await cacheCloudPreview({
+                receiptId: document.cloudReceiptId!,
+                fileName: document.fileName,
+                remoteUri,
+              }),
             };
           } catch {
             return null;
@@ -1883,13 +1926,20 @@ export default function App() {
       !selectedDocument ||
       !selectedDocument.cloudReceiptId ||
       !canHydrateDocumentPreview(selectedDocument) ||
-      canPreviewDocumentInline(selectedDocument)
+      (canPreviewDocumentInline(selectedDocument) && !isRemotePreviewUri(getPrimaryDocumentPreviewUri(selectedDocument)))
     ) {
       return;
     }
 
     let cancelled = false;
     void fetchCloudReceiptAssetUrl(selectedDocument.cloudReceiptId)
+      .then((remoteUri) =>
+        cacheCloudPreview({
+          receiptId: selectedDocument.cloudReceiptId!,
+          fileName: selectedDocument.fileName,
+          remoteUri,
+        }),
+      )
       .then((fileUri) => {
         if (cancelled) {
           return;
