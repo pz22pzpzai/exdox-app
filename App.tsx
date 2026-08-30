@@ -421,6 +421,29 @@ const canHydrateDocumentPreview = (document: Pick<ExpenseDocument, 'fileName'>) 
 
 const isRemotePreviewUri = (uri: string | undefined) => /^https?:\/\//i.test(uri ?? '');
 
+const getCloudPreviewCachePath = (receiptId: number, fileName: string) => {
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) {
+    return null;
+  }
+
+  const extension = (fileName.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+  return `${cacheDirectory}exdox-receipt-previews/${receiptId}.${extension}`;
+};
+
+const getCachedCloudPreview = async ({ receiptId, fileName }: { receiptId: number; fileName: string }) => {
+  const previewPath = getCloudPreviewCachePath(receiptId, fileName);
+  if (!previewPath) {
+    return null;
+  }
+
+  try {
+    return (await FileSystem.getInfoAsync(previewPath)).exists ? previewPath : null;
+  } catch {
+    return null;
+  }
+};
+
 const cacheCloudPreview = async ({
   receiptId,
   fileName,
@@ -430,19 +453,17 @@ const cacheCloudPreview = async ({
   fileName: string;
   remoteUri: string;
 }) => {
-  const cacheDirectory = FileSystem.cacheDirectory;
-  if (!cacheDirectory) {
+  const previewPath = getCloudPreviewCachePath(receiptId, fileName);
+  if (!previewPath) {
     return remoteUri;
   }
 
-  const extension = (fileName.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
-  const previewDirectory = `${cacheDirectory}exdox-receipt-previews/`;
-  const previewPath = `${previewDirectory}${receiptId}.${extension}`;
+  const previewDirectory = previewPath.slice(0, previewPath.lastIndexOf('/') + 1);
 
   try {
-    const existing = await FileSystem.getInfoAsync(previewPath);
-    if (existing.exists) {
-      return previewPath;
+    const existingPreview = await getCachedCloudPreview({ receiptId, fileName });
+    if (existingPreview) {
+      return existingPreview;
     }
 
     await FileSystem.makeDirectoryAsync(previewDirectory, { intermediates: true });
@@ -891,14 +912,60 @@ const buildInboundEmailAddress = (organisationName: string, organisationId: numb
 const DocumentThumbnail = memo(function DocumentThumbnail({
   previewUri,
   hasPreviewImage,
+  cloudReceiptId,
+  fileName,
 }: {
   previewUri?: string;
   hasPreviewImage: boolean;
+  cloudReceiptId?: number;
+  fileName: string;
 }) {
-  if (hasPreviewImage && previewUri) {
+  const [resolvedPreviewUri, setResolvedPreviewUri] = useState(previewUri);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (previewUri && !isRemotePreviewUri(previewUri)) {
+      setResolvedPreviewUri(previewUri);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!cloudReceiptId || !canHydrateDocumentPreview({ fileName })) {
+      setResolvedPreviewUri(previewUri);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getCachedCloudPreview({ receiptId: cloudReceiptId, fileName })
+      .then(async (cachedUri) => {
+        if (cachedUri) {
+          return cachedUri;
+        }
+        const remoteUri = await fetchCloudReceiptAssetUrl(cloudReceiptId);
+        return cacheCloudPreview({ receiptId: cloudReceiptId, fileName, remoteUri });
+      })
+      .then((nextUri) => {
+        if (!cancelled) {
+          setResolvedPreviewUri(nextUri);
+        }
+      })
+      .catch(() => {
+        // Keep the placeholder until a later visible-row retry succeeds.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudReceiptId, fileName, previewUri]);
+
+  const displayUri = resolvedPreviewUri ?? previewUri;
+  if ((hasPreviewImage || Boolean(displayUri)) && displayUri) {
     return (
       <Image
-        source={{ uri: previewUri }}
+        source={{ uri: displayUri }}
         fadeDuration={0}
         resizeMethod="resize"
         resizeMode="cover"
@@ -913,7 +980,10 @@ const DocumentThumbnail = memo(function DocumentThumbnail({
     </View>
   );
 }, (previousProps, nextProps) =>
-  previousProps.previewUri === nextProps.previewUri && previousProps.hasPreviewImage === nextProps.hasPreviewImage,
+  previousProps.previewUri === nextProps.previewUri &&
+  previousProps.hasPreviewImage === nextProps.hasPreviewImage &&
+  previousProps.cloudReceiptId === nextProps.cloudReceiptId &&
+  previousProps.fileName === nextProps.fileName,
 );
 
 const DocumentPreviewCarousel = memo(function DocumentPreviewCarousel({
@@ -4132,7 +4202,12 @@ const DocumentRow = memo(function DocumentRow({
       delayLongPress={240}
     >
       <View style={styles.documentLeft}>
-        <DocumentThumbnail previewUri={previewUri} hasPreviewImage={hasPreviewImage} />
+        <DocumentThumbnail
+          previewUri={previewUri}
+          hasPreviewImage={hasPreviewImage}
+          cloudReceiptId={document.cloudReceiptId}
+          fileName={document.fileName}
+        />
         <View style={styles.documentText}>
           <Text style={styles.documentTitle} numberOfLines={2} ellipsizeMode="tail">
             {document.title}
