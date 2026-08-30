@@ -1089,9 +1089,11 @@ export default function App() {
   const [filterVisible, setFilterVisible] = useState(false);
   const [settingsPanelTarget, setSettingsPanelTarget] = useState<SettingsPanelTarget | null>(null);
   const [claimComposerVisible, setClaimComposerVisible] = useState(false);
+  const [claimComposerSubmitting, setClaimComposerSubmitting] = useState(false);
   const [claimTitleInput, setClaimTitleInput] = useState('');
   const [claimStartDateInput, setClaimStartDateInput] = useState(new Date().toISOString().slice(0, 10));
   const [claimEndDateInput, setClaimEndDateInput] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedClaimDocumentIds, setSelectedClaimDocumentIds] = useState<string[]>([]);
   const [mileageVisible, setMileageVisible] = useState(false);
   const [mileageStartInput, setMileageStartInput] = useState('');
   const [mileageEndInput, setMileageEndInput] = useState('');
@@ -2783,23 +2785,51 @@ export default function App() {
     setClaimTitleInput(`Expense Claim ${new Date().toLocaleDateString('en-GB')}`);
     setClaimStartDateInput(new Date().toISOString().slice(0, 10));
     setClaimEndDateInput(new Date().toISOString().slice(0, 10));
+    setSelectedClaimDocumentIds([]);
     setClaimComposerVisible(true);
   };
 
   const submitClaimComposer = useEffectEvent(async () => {
+    const selectedDocuments = claimableDocuments.filter((document) => selectedClaimDocumentIds.includes(document.id));
+    if (!selectedDocuments.length) {
+      Alert.alert('Add purchases first', 'Choose at least one personal-spend purchase to include in this expense claim.');
+      return;
+    }
+    if (selectedDocuments.some((document) => !document.cloudReceiptId)) {
+      Alert.alert('Receipt still syncing', 'Wait for the selected purchases to finish syncing, then create the claim.');
+      return;
+    }
+
+    setClaimComposerSubmitting(true);
     try {
-      await createCloudClaim({
+      const created = await createCloudClaim({
         name: claimTitleInput.trim() || `Expense Claim ${new Date().toLocaleDateString('en-GB')}`,
         description: `Date range: ${claimStartDateInput} to ${claimEndDateInput}`,
         currency: 'GBP',
       });
+      await Promise.all(
+        selectedDocuments.map((document) =>
+          attachCloudReceiptToClaim({
+            claimId: created.id,
+            receiptId: document.cloudReceiptId as number,
+          }),
+        ),
+      );
       setClaimComposerVisible(false);
+      setSelectedClaimDocumentIds([]);
       if (authSession) {
         await syncCloudWorkspace(authSession);
       }
+      setActiveTab('claims');
+      Alert.alert(
+        'Claim submitted for review',
+        `${selectedDocuments.length} purchase${selectedDocuments.length === 1 ? '' : 's'} ${selectedDocuments.length === 1 ? 'has' : 'have'} been added and sent to your employer for review.`,
+      );
     } catch (error) {
       void recordError('submit claim composer', error);
       Alert.alert('Claim failed', error instanceof Error ? error.message : 'Could not create a new claim.');
+    } finally {
+      setClaimComposerSubmitting(false);
     }
   });
 
@@ -3173,13 +3203,21 @@ export default function App() {
 
         <ClaimComposerSheet
           visible={claimComposerVisible}
+          submitting={claimComposerSubmitting}
           title={claimTitleInput}
           startDate={claimStartDateInput}
           endDate={claimEndDateInput}
+          claimableDocuments={claimableDocuments}
+          selectedDocumentIds={selectedClaimDocumentIds}
           onClose={() => setClaimComposerVisible(false)}
           onChangeTitle={setClaimTitleInput}
           onChangeStartDate={setClaimStartDateInput}
           onChangeEndDate={setClaimEndDateInput}
+          onToggleDocument={(documentId) =>
+            setSelectedClaimDocumentIds((current) =>
+              current.includes(documentId) ? current.filter((id) => id !== documentId) : [...current, documentId],
+            )
+          }
           onSubmit={() => void submitClaimComposer()}
         />
 
@@ -4521,23 +4559,31 @@ function FilterSheet({
 
 function ClaimComposerSheet({
   visible,
+  submitting,
   title,
   startDate,
   endDate,
+  claimableDocuments,
+  selectedDocumentIds,
   onClose,
   onChangeTitle,
   onChangeStartDate,
   onChangeEndDate,
+  onToggleDocument,
   onSubmit,
 }: {
   visible: boolean;
+  submitting: boolean;
   title: string;
   startDate: string;
   endDate: string;
+  claimableDocuments: ExpenseDocument[];
+  selectedDocumentIds: string[];
   onClose: () => void;
   onChangeTitle: (value: string) => void;
   onChangeStartDate: (value: string) => void;
   onChangeEndDate: (value: string) => void;
+  onToggleDocument: (documentId: string) => void;
   onSubmit: () => void;
 }) {
   if (!visible) {
@@ -4551,11 +4597,43 @@ function ClaimComposerSheet({
         <View style={styles.panelSheet}>
           <View style={styles.documentSheetHandle} />
           <Text style={styles.panelTitle}>Create claim</Text>
-          <TextInput value={title} onChangeText={onChangeTitle} placeholder="Claim title" style={styles.panelInput} />
-          <TextInput value={startDate} onChangeText={onChangeStartDate} placeholder="Start date" style={styles.panelInput} />
-          <TextInput value={endDate} onChangeText={onChangeEndDate} placeholder="End date" style={styles.panelInput} />
-          <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
-            <Text style={styles.panelPrimaryButtonText}>Create claim</Text>
+          <Text style={styles.claimComposerCopy}>Choose the personal purchases to reimburse, then send one claim to your employer for review.</Text>
+          <ScrollView style={styles.claimComposerScroll} contentContainerStyle={styles.claimComposerContent} keyboardShouldPersistTaps="handled">
+            <TextInput value={title} onChangeText={onChangeTitle} placeholder="Claim title" style={styles.panelInput} editable={!submitting} />
+            <TextInput value={startDate} onChangeText={onChangeStartDate} placeholder="Start date" style={styles.panelInput} editable={!submitting} />
+            <TextInput value={endDate} onChangeText={onChangeEndDate} placeholder="End date" style={styles.panelInput} editable={!submitting} />
+            <View style={styles.claimComposerSelectionHeader}>
+              <Text style={styles.panelSectionTitle}>Purchases to claim</Text>
+              <Text style={styles.claimComposerCount}>{selectedDocumentIds.length} selected</Text>
+            </View>
+            {claimableDocuments.length ? claimableDocuments.map((document) => {
+              const selected = selectedDocumentIds.includes(document.id);
+              return (
+                <Pressable
+                  key={document.id}
+                  style={[styles.claimComposerDocumentRow, selected && styles.claimComposerDocumentRowSelected]}
+                  onPress={() => onToggleDocument(document.id)}
+                  disabled={submitting}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected, disabled: submitting }}
+                  accessibilityLabel={`Include ${document.title || document.supplier} in this claim`}
+                >
+                  <View style={[styles.claimComposerCheckbox, selected && styles.claimComposerCheckboxSelected]}>
+                    {selected ? <Ionicons name="checkmark" size={16} color={colors.white} /> : null}
+                  </View>
+                  <View style={styles.claimComposerDocumentCopy}>
+                    <Text style={styles.claimComposerDocumentTitle} numberOfLines={1}>{document.title || document.supplier}</Text>
+                    <Text style={styles.claimComposerDocumentDate}>{formatDate(document.date)}</Text>
+                  </View>
+                  <Text style={styles.claimComposerDocumentAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+                </Pressable>
+              );
+            }) : (
+              <Text style={styles.claimComposerEmpty}>No personal-spend purchases are ready to claim yet. Upload or review a purchase with Personal / cash payment first.</Text>
+            )}
+          </ScrollView>
+          <Pressable style={[styles.panelPrimaryButton, (submitting || !selectedDocumentIds.length) && styles.panelPrimaryButtonDisabled]} onPress={onSubmit} disabled={submitting || !selectedDocumentIds.length}>
+            <Text style={styles.panelPrimaryButtonText}>{submitting ? 'Creating claim…' : 'Create & request approval'}</Text>
           </Pressable>
         </View>
       </View>
@@ -8008,12 +8086,90 @@ const styles = StyleSheet.create({
     color: colors.nearBlack,
     marginBottom: 12,
   },
+  claimComposerCopy: {
+    marginTop: -8,
+    marginBottom: 14,
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.mutedText,
+  },
+  claimComposerScroll: {
+    flexShrink: 1,
+  },
+  claimComposerContent: {
+    paddingBottom: 8,
+  },
+  claimComposerSelectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  claimComposerCount: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.royalBlueDark,
+  },
+  claimComposerDocumentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.lightBorder,
+    borderRadius: 14,
+    marginBottom: 8,
+  },
+  claimComposerDocumentRowSelected: {
+    borderColor: colors.dotMint,
+    backgroundColor: '#EFFBF8',
+  },
+  claimComposerCheckbox: {
+    width: 22,
+    height: 22,
+    borderWidth: 2,
+    borderColor: colors.mutedText,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  claimComposerCheckboxSelected: {
+    borderColor: colors.royalBlueDark,
+    backgroundColor: colors.royalBlueDark,
+  },
+  claimComposerDocumentCopy: {
+    flex: 1,
+  },
+  claimComposerDocumentTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.nearBlack,
+  },
+  claimComposerDocumentDate: {
+    marginTop: 3,
+    fontSize: 13,
+    color: colors.mutedText,
+  },
+  claimComposerDocumentAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.royalBlueDark,
+  },
+  claimComposerEmpty: {
+    paddingVertical: 12,
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.mutedText,
+  },
   panelPrimaryButton: {
     marginTop: 6,
     borderRadius: 14,
     backgroundColor: colors.royalBlueDark,
     alignItems: 'center',
     paddingVertical: 14,
+  },
+  panelPrimaryButtonDisabled: {
+    opacity: 0.45,
   },
   panelPrimaryButtonText: {
     fontSize: 16,
