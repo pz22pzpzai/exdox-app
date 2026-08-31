@@ -161,7 +161,9 @@ const getDefaultPaymentMethod = (workspaceContext: WorkspaceContext, isAdmin: bo
   if (workspaceContext === 'sales') {
     return 'bank_transfer';
   }
-  return isAdmin ? 'business_card' : 'cash_personal';
+  // A cost uploaded from a person's own app login is treated as their out-of-pocket spend.
+  // Reviewers can still change it to a business-funded payment method when appropriate.
+  return 'cash_personal';
 };
 
 const formatErrorLog = (source: string, error: unknown, isFatal = false): AppErrorLog => {
