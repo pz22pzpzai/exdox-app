@@ -1,6 +1,12 @@
 export type DocumentKind = 'receipt' | 'invoice';
 export type WorkspaceContext = 'cost' | 'sales' | 'vault';
 export type PaymentMethod = 'business_card' | 'cash_personal' | 'bank_transfer' | 'not_applicable';
+export type PaymentMethodMatchState =
+  | 'not_detected'
+  | 'personal'
+  | 'company_card'
+  | 'employee_review'
+  | 'employee_exception';
 export type UkTaxRate = '20% Standard' | '5% Reduced' | '0% Zero' | 'Exempt' | 'No VAT';
 
 export type DocumentStatus =
@@ -21,6 +27,12 @@ export interface ExpenseDocument {
   type: DocumentKind;
   workspaceContext: WorkspaceContext;
   paymentMethod: PaymentMethod;
+  paymentMethodMatchState?: PaymentMethodMatchState;
+  paymentMethodReviewRequired?: boolean;
+  matchedCompanyCardId?: number | null;
+  paymentCardLastFour?: string | null;
+  paymentCardNetwork?: string | null;
+  paymentCardIssuer?: string | null;
   title: string;
   supplier: string;
   amount: number;

@@ -46,6 +46,9 @@ type ReceiptApiResponse = {
     uploadedByEmail?: string | null;
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
+    paymentMethodMatchState?: ExpenseDocument['paymentMethodMatchState'];
+    paymentMethodReviewRequired?: boolean;
+    matchedCompanyCardId?: number | null;
     claimId: number | null;
     status: string | null;
     sourceFilename: string;
@@ -56,6 +59,9 @@ type ReceiptApiResponse = {
     invoiceDate: string | null;
     dueDate: string | null;
     invoiceNumber: string | null;
+    paymentCardLastFour?: string | null;
+    paymentCardNetwork?: string | null;
+    paymentCardIssuer?: string | null;
     currency: string | null;
     baseCurrency: string;
     baseTotalAmount: number | null;
@@ -304,6 +310,9 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     type: receipt.documentType === 'invoice' ? 'invoice' : 'receipt',
     workspaceContext: receipt.workspaceContext,
     paymentMethod: receipt.paymentMethod,
+    paymentMethodMatchState: receipt.paymentMethodMatchState ?? 'not_detected',
+    paymentMethodReviewRequired: receipt.paymentMethodReviewRequired ?? false,
+    matchedCompanyCardId: receipt.matchedCompanyCardId ?? null,
     title: receipt.vendorName || receipt.sourceFilename.replace(/\.[^/.]+$/, ''),
     supplier: receipt.vendorName || 'Merchant to review',
     amount: resolveDocumentAmount({
@@ -336,6 +345,9 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     date: receipt.invoiceDate ?? receipt.createdAt,
     dueDate: receipt.dueDate ?? undefined,
     invoiceNumber: receipt.invoiceNumber ?? undefined,
+    paymentCardLastFour: receipt.paymentCardLastFour ?? null,
+    paymentCardNetwork: receipt.paymentCardNetwork ?? null,
+    paymentCardIssuer: receipt.paymentCardIssuer ?? null,
     notes: receipt.notes.join(' ') || 'Imported from your cloud receipts.',
     tags: [receipt.documentType, 'cloud'],
     fileName: receipt.sourceFilename,

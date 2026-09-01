@@ -907,6 +907,37 @@ const getStatusLabel = (status: ExpenseDocument['status']) =>
           ? 'Payment processing'
         : 'Paid';
 
+const getPaymentMethodLabel = (paymentMethod: PaymentMethod) =>
+  paymentMethod === 'business_card'
+    ? 'Company card'
+    : paymentMethod === 'cash_personal'
+      ? 'Personal spend'
+      : paymentMethod === 'bank_transfer'
+        ? 'Bank transfer'
+        : 'Not applicable';
+
+const getPaymentCardLabel = (document: ExpenseDocument) => {
+  const details = [document.paymentCardNetwork?.trim(), document.paymentCardIssuer?.trim()]
+    .filter((detail): detail is string => Boolean(detail));
+
+  if (document.paymentCardLastFour) {
+    details.push(`**** ${document.paymentCardLastFour}`);
+  }
+
+  return details.join(' / ') || 'Not detected';
+};
+
+const getPaymentMethodMatchLabel = (document: ExpenseDocument) =>
+  document.paymentMethodMatchState === 'company_card'
+    ? 'Company card confirmed'
+    : document.paymentMethodMatchState === 'employee_review'
+      ? 'Admin review needed'
+      : document.paymentMethodMatchState === 'employee_exception'
+        ? 'Personal-card exception'
+        : document.paymentMethodMatchState === 'personal'
+          ? 'Personal spend'
+          : 'No card match';
+
 const isReimbursementArchiveDocument = (document: ExpenseDocument) =>
   document.workspaceContext === 'cost' &&
   document.paymentMethod === 'cash_personal' &&
@@ -2126,6 +2157,7 @@ export default function App() {
       appState.documents
         .filter((document) => document.workspaceContext === 'cost')
         .filter((document) => document.paymentMethod === 'cash_personal')
+        .filter((document) => !document.paymentMethodReviewRequired)
         .filter((document) => !document.claimId)
         .filter((document) => document.extractionStatus !== 'pending')
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
@@ -5035,6 +5067,8 @@ function CaptureReviewScreen({
   const filteredCategoryOptions = categoryOptions.filter((option) =>
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
+  const submittedByName = document.uploadedByEmail?.trim() || ownerName;
+  const lineItemCount = document.lineItems?.length ?? 0;
 
   return (
     <>
@@ -5062,12 +5096,75 @@ function CaptureReviewScreen({
             showsVerticalScrollIndicator={false}
           >
             <Pressable style={styles.captureReviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
+              <Text style={styles.captureReviewFieldLabel}>Category</Text>
               <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Select category'}</Text>
             </Pressable>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Type</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{document.type === 'invoice' ? 'Invoice' : 'Receipt'}</Text>
+            </View>
             <View style={styles.captureReviewFieldRow}>
               <Text style={styles.captureReviewFieldLabel}>Owned by</Text>
               <Text style={styles.captureReviewFieldValueRight}>{ownerName}</Text>
             </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Submitted by</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{submittedByName}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Date</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{formatDate(document.date)}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Document reference</Text>
+              <Text style={styles.captureReviewFieldValueRight} numberOfLines={1}>
+                {document.invoiceNumber?.trim() || document.fileName || 'Not available'}
+              </Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Supplier</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{document.supplier || 'Not available'}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Currency</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{document.currency || document.baseCurrency || 'GBP'}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Total amount</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{formatCurrency(document.amount, document.currency)}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Tax amount</Text>
+              <Text style={styles.captureReviewFieldValueRight}>
+                {formatCurrency(document.vatAmount ?? document.taxAmount, document.currency)}
+              </Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Line items</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{`${lineItemCount} ${lineItemCount === 1 ? 'line' : 'lines'}`}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Paid at purchase</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{document.type === 'receipt' ? 'Yes' : 'Not confirmed'}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Payment card</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{getPaymentCardLabel(document)}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Payment method</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{getPaymentMethodLabel(document.paymentMethod)}</Text>
+            </View>
+            <View style={styles.captureReviewFieldRow}>
+              <Text style={styles.captureReviewFieldLabel}>Claim status</Text>
+              <Text style={styles.captureReviewFieldValueRight}>{getStatusLabel(document.status)}</Text>
+            </View>
+            {document.paymentMethodMatchState && document.paymentMethodMatchState !== 'not_detected' ? (
+              <View style={styles.captureReviewFieldRow}>
+                <Text style={styles.captureReviewFieldLabel}>Company card check</Text>
+                <Text style={styles.captureReviewFieldValueRight}>{getPaymentMethodMatchLabel(document)}</Text>
+              </View>
+            ) : null}
             <View style={styles.captureReviewTextField}>
               <TextInput
                 value={descriptionInput}
@@ -5247,6 +5344,8 @@ function DocumentSheet({
       : 'This expense is included in your employer\'s payment processing and is retained here for your records.'
     : extractionStatusText;
   const documentReference = document.invoiceNumber?.trim() || document.fileName || 'Not available';
+  const submittedByName = document.uploadedByEmail?.trim() || ownerName;
+  const lineItemCount = document.lineItems?.length ?? 0;
 
   return (
     <>
@@ -5307,6 +5406,10 @@ function DocumentSheet({
                 <Text style={styles.reviewFieldValue}>{ownerName}</Text>
               </View>
               <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Submitted by</Text>
+                <Text style={styles.reviewFieldValue}>{submittedByName}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
                 <Text style={styles.reviewFieldLabel}>Date</Text>
                 <Text style={styles.reviewFieldValue}>{formatDate(document.date)}</Text>
               </View>
@@ -5330,6 +5433,28 @@ function DocumentSheet({
                 <Text style={styles.reviewFieldLabel}>Tax amount</Text>
                 <Text style={styles.reviewFieldValue}>{formatCurrency(document.vatAmount ?? document.taxAmount, document.currency)}</Text>
               </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Line items</Text>
+                <Text style={styles.reviewFieldValue}>{`${lineItemCount} ${lineItemCount === 1 ? 'line' : 'lines'}`}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Paid at purchase</Text>
+                <Text style={styles.reviewFieldValue}>{document.type === 'receipt' ? 'Yes' : 'Not confirmed'}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Payment card</Text>
+                <Text style={styles.reviewFieldValue}>{getPaymentCardLabel(document)}</Text>
+              </View>
+              <View style={styles.reviewFieldRow}>
+                <Text style={styles.reviewFieldLabel}>Payment method</Text>
+                <Text style={styles.reviewFieldValue}>{getPaymentMethodLabel(document.paymentMethod)}</Text>
+              </View>
+              {document.paymentMethodMatchState && document.paymentMethodMatchState !== 'not_detected' ? (
+                <View style={styles.reviewFieldRow}>
+                  <Text style={styles.reviewFieldLabel}>Company card check</Text>
+                  <Text style={styles.reviewFieldValue}>{getPaymentMethodMatchLabel(document)}</Text>
+                </View>
+              ) : null}
               {document.description ? (
                 <View style={styles.archivedDocumentDescription}>
                   <Text style={styles.reviewFieldLabel}>Description</Text>
@@ -5341,6 +5466,30 @@ function DocumentSheet({
           {!reimbursementArchived ? (
             <>
           <View style={styles.reviewEditor}>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Type</Text>
+              <Text style={styles.reviewFieldValue}>{document.type === 'invoice' ? 'Invoice' : 'Receipt'}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Owned by</Text>
+              <Text style={styles.reviewFieldValue}>{ownerName}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Submitted by</Text>
+              <Text style={styles.reviewFieldValue}>{submittedByName}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Date</Text>
+              <Text style={styles.reviewFieldValue}>{formatDate(document.date)}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Document reference</Text>
+              <Text style={styles.reviewFieldValue} numberOfLines={1}>{documentReference}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Supplier</Text>
+              <Text style={styles.reviewFieldValue}>{document.supplier || 'Not available'}</Text>
+            </View>
             <Pressable style={styles.reviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
               <Text style={styles.reviewFieldLabel}>Category</Text>
               <View style={styles.reviewFieldValueRow}>
@@ -5349,9 +5498,33 @@ function DocumentSheet({
               </View>
             </Pressable>
             <View style={styles.reviewFieldRow}>
-              <Text style={styles.reviewFieldLabel}>Owned by</Text>
-              <Text style={styles.reviewFieldValue}>{ownerName}</Text>
+              <Text style={styles.reviewFieldLabel}>Line items</Text>
+              <Text style={styles.reviewFieldValue}>{`${lineItemCount} ${lineItemCount === 1 ? 'line' : 'lines'}`}</Text>
             </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Paid at purchase</Text>
+              <Text style={styles.reviewFieldValue}>{document.type === 'receipt' ? 'Yes' : 'Not confirmed'}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Payment card</Text>
+              <Text style={styles.reviewFieldValue}>{getPaymentCardLabel(document)}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Company card check</Text>
+              <Text style={styles.reviewFieldValue}>{getPaymentMethodMatchLabel(document)}</Text>
+            </View>
+            <View style={styles.reviewFieldRow}>
+              <Text style={styles.reviewFieldLabel}>Claim status</Text>
+              <Text style={styles.reviewFieldValue}>{getStatusLabel(document.status)}</Text>
+            </View>
+            {document.paymentMethodReviewRequired ? (
+              <View style={styles.paymentMethodReviewNotice}>
+                <Ionicons name="alert-circle-outline" size={20} color={colors.amber} />
+                <Text style={styles.paymentMethodReviewNoticeText}>
+                  This card may be a company card. Your business admin must resolve it before it can be claimed.
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.reviewTextField}>
               <Text style={styles.reviewFieldLabel}>Description</Text>
               <TextInput
@@ -5520,7 +5693,7 @@ function DocumentSheet({
             <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkReviewed}>
               <Text style={styles.sheetActionPrimaryText}>Mark reviewed</Text>
             </Pressable>
-            {document.workspaceContext === 'cost' && document.paymentMethod === 'cash_personal' ? (
+            {document.workspaceContext === 'cost' && document.paymentMethod === 'cash_personal' && !document.paymentMethodReviewRequired ? (
               <Pressable style={styles.sheetActionButton} onPress={onAddToClaim}>
                 <Text style={styles.sheetActionText}>Add to claim</Text>
               </Pressable>
@@ -7538,6 +7711,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.nearBlack,
     backgroundColor: colors.band,
+  },
+  paymentMethodReviewNotice: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#FFF8E6',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.lightBorder,
+  },
+  paymentMethodReviewNoticeText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.nearBlack,
   },
   taxEditor: {
     marginTop: 18,
