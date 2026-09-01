@@ -43,6 +43,7 @@ type ReceiptApiResponse = {
     id: number;
     organisationId: number;
     uploadedByUserId: number;
+    uploadedByEmail?: string | null;
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
     claimId: number | null;
@@ -340,6 +341,8 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     source: 'files',
     claimId: receipt.claimId === null ? undefined : `claim-${receipt.claimId}`,
     cloudReceiptId: receipt.id,
+    uploadedByUserId: receipt.uploadedByUserId,
+    uploadedByEmail: receipt.uploadedByEmail ?? null,
     storageKey: receipt.s3Key,
     storageBucket: receipt.s3Bucket,
     extractionStatus: 'complete',

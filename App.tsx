@@ -2641,6 +2641,16 @@ export default function App() {
   });
 
   const deleteDocument = useEffectEvent(async (document: ExpenseDocument) => {
+    if (
+      document.cloudReceiptId &&
+      (!authSession || document.uploadedByUserId !== authSession.user.id)
+    ) {
+      Alert.alert(
+        'This item belongs to another account',
+        'Only the Exdox account that uploaded this item can delete it from the app.',
+      );
+      return;
+    }
     if (document.claimId) {
       Alert.alert(
         'Document linked to claim',
@@ -2672,7 +2682,7 @@ export default function App() {
   const confirmDeleteDocument = useEffectEvent((document: ExpenseDocument) => {
     Alert.alert(
       'Delete document',
-      `Delete ${document.title}? This cannot be undone.`,
+      `Delete ${document.title} from both the app and dashboard? This cannot be undone.`,
       [
         {
           text: 'Cancel',
@@ -2867,6 +2877,9 @@ export default function App() {
     }
   });
 
+  const canDeleteDocument = (document: ExpenseDocument) =>
+    !document.cloudReceiptId || Boolean(authSession && document.uploadedByUserId === authSession.user.id);
+
   const submitMileageClaim = useEffectEvent(async () => {
     const miles = Number.parseFloat(mileageMilesInput);
     if (!mileageStartInput.trim() || !mileageEndInput.trim() || !Number.isFinite(miles) || miles <= 0) {
@@ -3039,6 +3052,7 @@ export default function App() {
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
+              canDeleteDocument={canDeleteDocument}
               onAddDocument={openCapture}
             />
           )}
@@ -3047,6 +3061,7 @@ export default function App() {
               documents={filteredDocuments}
               onOpenDocument={setSelectedDocumentId}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
+              canDeleteDocument={canDeleteDocument}
               onAddDocument={openCapture}
             />
           )}
@@ -3197,6 +3212,7 @@ export default function App() {
               confirmDeleteDocument(selectedDocument);
             }
           }}
+          canDelete={selectedDocument ? canDeleteDocument(selectedDocument) : false}
         />
 
         <ErrorLogSheet
@@ -3478,11 +3494,13 @@ function CostsScreen({
   documents,
   onOpenDocument,
   onDeleteDocument,
+  canDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
+  canDeleteDocument: (document: ExpenseDocument) => boolean;
   onAddDocument: () => void;
 }) {
   if (!documents.length) {
@@ -3512,7 +3530,7 @@ function CostsScreen({
           document={item}
           onPress={() => onOpenDocument(item.id)}
           onStatusPress={() => onOpenDocument(item.id)}
-          onLongPress={() => onDeleteDocument(item)}
+          onLongPress={canDeleteDocument(item) ? () => onDeleteDocument(item) : undefined}
         />
       )}
     />
@@ -3523,11 +3541,13 @@ function SalesScreen({
   documents,
   onOpenDocument,
   onDeleteDocument,
+  canDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
   onOpenDocument: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
+  canDeleteDocument: (document: ExpenseDocument) => boolean;
   onAddDocument: () => void;
 }) {
   if (!documents.length) {
@@ -3552,7 +3572,7 @@ function SalesScreen({
           document={item}
           onPress={() => onOpenDocument(item.id)}
           onStatusPress={() => onOpenDocument(item.id)}
-          onLongPress={() => onDeleteDocument(item)}
+          onLongPress={canDeleteDocument(item) ? () => onDeleteDocument(item) : undefined}
         />
       )}
     />
@@ -5146,6 +5166,7 @@ function DocumentSheet({
   onUpdateReviewFields,
   onMarkSubmitted,
   onDelete,
+  canDelete,
 }: {
   document: ExpenseDocument | null;
   ownerName: string;
@@ -5161,6 +5182,7 @@ function DocumentSheet({
   ) => Promise<void>;
   onMarkSubmitted: () => void;
   onDelete: () => void;
+  canDelete: boolean;
 }) {
   const [totalInput, setTotalInput] = useState('0.00');
   const [netInput, setNetInput] = useState('0.00');
@@ -5483,9 +5505,11 @@ function DocumentSheet({
             <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkSubmitted}>
               <Text style={styles.sheetActionPrimaryText}>Mark submitted</Text>
             </Pressable>
-            <Pressable style={[styles.sheetActionButton, styles.sheetActionDanger]} onPress={onDelete}>
-              <Text style={styles.sheetActionDangerText}>Delete</Text>
-            </Pressable>
+            {canDelete ? (
+              <Pressable style={[styles.sheetActionButton, styles.sheetActionDanger]} onPress={onDelete}>
+                <Text style={styles.sheetActionDangerText}>Delete</Text>
+              </Pressable>
+            ) : null}
               </View>
             </>
           ) : null}
