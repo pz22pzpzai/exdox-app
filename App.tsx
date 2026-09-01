@@ -928,7 +928,9 @@ const getPaymentCardLabel = (document: ExpenseDocument) => {
 };
 
 const getPaymentMethodMatchLabel = (document: ExpenseDocument) =>
-  document.paymentMethodMatchState === 'company_card'
+  document.paymentMethod === 'business_card'
+    ? 'Company card'
+    : document.paymentMethodMatchState === 'company_card'
     ? 'Company card confirmed'
     : document.paymentMethodMatchState === 'employee_review'
       ? 'Admin review needed'
@@ -5036,12 +5038,13 @@ function CaptureReviewScreen({
   ownerName: string;
   onClose: () => void;
   onSubmit: (
-    reviewFields: Pick<ExpenseDocument, 'category' | 'description' | 'customer' | 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'>,
+    reviewFields: Pick<ExpenseDocument, 'category' | 'description' | 'customer' | 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'paymentMethod'>,
   ) => Promise<void>;
 }) {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
   const [customerInput, setCustomerInput] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('cash_personal');
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [categorySearchInput, setCategorySearchInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -5054,6 +5057,7 @@ function CaptureReviewScreen({
     setSelectedCategory(document.category ?? '');
     setDescriptionInput(document.description ?? '');
     setCustomerInput(document.customer ?? '');
+    setSelectedPaymentMethod(document.paymentMethod || 'cash_personal');
     setCategoryPickerVisible(false);
     setCategorySearchInput('');
     setSubmitting(false);
@@ -5110,6 +5114,35 @@ function CaptureReviewScreen({
                 style={styles.captureReviewTextInput}
               />
             </View>
+            {document.workspaceContext === 'cost' ? (
+              <View style={styles.captureReviewPaymentMethod}>
+                <Text style={styles.captureReviewPaymentMethodLabel}>Payment method</Text>
+                <View style={styles.captureReviewPaymentMethodOptions}>
+                  {([
+                    ['cash_personal', 'Personal'],
+                    ['business_card', 'Company card'],
+                  ] as Array<[PaymentMethod, string]>).map(([method, label]) => (
+                    <Pressable
+                      key={method}
+                      style={[
+                        styles.captureReviewPaymentMethodOption,
+                        method === selectedPaymentMethod && styles.captureReviewPaymentMethodOptionActive,
+                      ]}
+                      onPress={() => setSelectedPaymentMethod(method)}
+                    >
+                      <Text
+                        style={[
+                          styles.captureReviewPaymentMethodOptionText,
+                          method === selectedPaymentMethod && styles.captureReviewPaymentMethodOptionTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <Text style={styles.captureReviewSectionHeading}>More</Text>
             <View style={styles.captureReviewTextField}>
               <Text style={styles.captureReviewFieldValue}>Customer</Text>
@@ -5139,6 +5172,7 @@ function CaptureReviewScreen({
                     vatAmount: document.vatAmount,
                     taxAmount: document.taxAmount,
                     taxRateApplied: document.taxRateApplied,
+                    paymentMethod: selectedPaymentMethod,
                   });
                 } finally {
                   setSubmitting(false);
@@ -7407,6 +7441,43 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderBottomWidth: 1,
     borderBottomColor: '#B8CCED',
+  },
+  captureReviewPaymentMethod: {
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#B8CCED',
+  },
+  captureReviewPaymentMethodLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.royalBlueDark,
+  },
+  captureReviewPaymentMethodOptions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  captureReviewPaymentMethodOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#B8CCED',
+    borderRadius: 10,
+    backgroundColor: colors.white,
+  },
+  captureReviewPaymentMethodOptionActive: {
+    borderColor: colors.royalBlueDark,
+    backgroundColor: '#EAF1FC',
+  },
+  captureReviewPaymentMethodOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.slate,
+  },
+  captureReviewPaymentMethodOptionTextActive: {
+    color: colors.royalBlueDark,
   },
   captureReviewTextInput: {
     minHeight: 72,
