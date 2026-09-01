@@ -3581,19 +3581,17 @@ function ClaimsScreen({
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
   const [expandedPaymentRoundId, setExpandedPaymentRoundId] = useState<string | null>(null);
 
-  const processedClaims = claims.filter((claim) => claim.status === 'approved' || claim.status === 'paid');
   const openClaims = claims.filter((claim) => claim.status === 'pending' || claim.status === 'rejected');
-  const visibleClaims = mode === 'reports' ? processedClaims : openClaims;
   const paymentRounds = groupReimbursementDocumentsByPaymentRound(reimbursementDocuments);
 
-  if (!visibleClaims.length && !(mode === 'reports' && reimbursementDocuments.length)) {
+  if ((mode === 'reports' && !paymentRounds.length) || (mode === 'claims' && !openClaims.length)) {
     return (
       <BlankPanel
         icon={mode === 'reports' ? 'analytics-outline' : 'receipt-outline'}
-        title={mode === 'reports' ? 'No processed reports yet' : 'No expense claims yet'}
+        title={mode === 'reports' ? 'No payment rounds yet' : 'No expense claims yet'}
         copy={
           mode === 'reports'
-            ? 'Approved and paid claims will appear here once your employer has processed them.'
+            ? 'Your reimbursement rounds will appear here once your employer processes them.'
             : 'Create a claim to group your purchases before submitting them to your employer.'
         }
         actionLabel={mode === 'claims' ? 'Create a claim' : undefined}
@@ -3621,32 +3619,6 @@ function ClaimsScreen({
           <Ionicons name="add-circle-outline" size={20} color={colors.white} />
           <Text style={styles.claimCreateButtonText}>Create claim</Text>
         </Pressable>
-      ) : null}
-
-      {mode === 'reports' && processedClaims.length ? (
-        <>
-          <View style={styles.claimSectionHeading}>
-            <View style={styles.paymentRoundHeadingCopy}>
-              <Text style={styles.claimSectionTitle}>Processed claims</Text>
-              <Text style={styles.claimSectionCopy}>Claims approved or paid by your employer.</Text>
-            </View>
-            <Ionicons name="checkmark-circle" size={22} color={colors.dotMint} />
-          </View>
-          {groupByMonth(processedClaims).map(([month, monthClaims]) => (
-            <View key={`processed-${month}`} style={styles.claimMonthGroup}>
-              <Text style={styles.claimMonthHeading}>{month}</Text>
-              {monthClaims.map((claim) => (
-                <ClaimReportCard
-                  key={claim.id}
-                  claim={claim}
-                  documents={documents}
-                  expanded={expandedClaimId === claim.id}
-                  onToggle={() => toggleClaim(claim.id)}
-                />
-              ))}
-            </View>
-          ))}
-        </>
       ) : null}
 
       {mode === 'reports' && paymentRounds.length ? (
