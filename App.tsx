@@ -5067,8 +5067,6 @@ function CaptureReviewScreen({
   const filteredCategoryOptions = categoryOptions.filter((option) =>
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
-  const submittedByName = document.uploadedByEmail?.trim() || ownerName;
-  const lineItemCount = document.lineItems?.length ?? 0;
 
   return (
     <>
@@ -5096,75 +5094,12 @@ function CaptureReviewScreen({
             showsVerticalScrollIndicator={false}
           >
             <Pressable style={styles.captureReviewFieldButton} onPress={() => setCategoryPickerVisible(true)}>
-              <Text style={styles.captureReviewFieldLabel}>Category</Text>
-              <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Select category'}</Text>
+              <Text style={styles.captureReviewFieldValue}>{selectedCategory || 'Category'}</Text>
             </Pressable>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Type</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{document.type === 'invoice' ? 'Invoice' : 'Receipt'}</Text>
-            </View>
             <View style={styles.captureReviewFieldRow}>
               <Text style={styles.captureReviewFieldLabel}>Owned by</Text>
               <Text style={styles.captureReviewFieldValueRight}>{ownerName}</Text>
             </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Submitted by</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{submittedByName}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Date</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{formatDate(document.date)}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Document reference</Text>
-              <Text style={styles.captureReviewFieldValueRight} numberOfLines={1}>
-                {document.invoiceNumber?.trim() || document.fileName || 'Not available'}
-              </Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Supplier</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{document.supplier || 'Not available'}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Currency</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{document.currency || document.baseCurrency || 'GBP'}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Total amount</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{formatCurrency(document.amount, document.currency)}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Tax amount</Text>
-              <Text style={styles.captureReviewFieldValueRight}>
-                {formatCurrency(document.vatAmount ?? document.taxAmount, document.currency)}
-              </Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Line items</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{`${lineItemCount} ${lineItemCount === 1 ? 'line' : 'lines'}`}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Paid at purchase</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{document.type === 'receipt' ? 'Yes' : 'Not confirmed'}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Payment card</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{getPaymentCardLabel(document)}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Payment method</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{getPaymentMethodLabel(document.paymentMethod)}</Text>
-            </View>
-            <View style={styles.captureReviewFieldRow}>
-              <Text style={styles.captureReviewFieldLabel}>Claim status</Text>
-              <Text style={styles.captureReviewFieldValueRight}>{getStatusLabel(document.status)}</Text>
-            </View>
-            {document.paymentMethodMatchState && document.paymentMethodMatchState !== 'not_detected' ? (
-              <View style={styles.captureReviewFieldRow}>
-                <Text style={styles.captureReviewFieldLabel}>Company card check</Text>
-                <Text style={styles.captureReviewFieldValueRight}>{getPaymentMethodMatchLabel(document)}</Text>
-              </View>
-            ) : null}
             <View style={styles.captureReviewTextField}>
               <TextInput
                 value={descriptionInput}
@@ -7442,7 +7377,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: colors.lightBorder,
+    borderBottomColor: '#B8CCED',
   },
   captureReviewFieldRow: {
     flexDirection: 'row',
@@ -7452,7 +7387,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: colors.lightBorder,
+    borderBottomColor: '#B8CCED',
   },
   captureReviewFieldLabel: {
     fontSize: 16,
@@ -7471,7 +7406,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 18,
     borderBottomWidth: 1,
-    borderBottomColor: colors.lightBorder,
+    borderBottomColor: '#B8CCED',
   },
   captureReviewTextInput: {
     minHeight: 72,
@@ -7491,8 +7426,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 14,
     fontWeight: '700',
-    color: colors.nearBlack,
-    backgroundColor: colors.band,
+    color: colors.royalBlueDark,
+    backgroundColor: '#EAF1FC',
   },
   captureReviewFooter: {
     paddingHorizontal: 24,
