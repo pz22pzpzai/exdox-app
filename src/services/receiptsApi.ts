@@ -234,7 +234,7 @@ export async function updateCloudReceipt(
   updates: Partial<
     Pick<
       ExpenseDocument,
-      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
+      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
     >
   >,
 ) {
@@ -253,6 +253,7 @@ export async function updateCloudReceipt(
       category: updates.category,
       description: updates.description,
       customer: updates.customer,
+      paymentMethod: updates.paymentMethod,
       netAmount: updates.netAmount,
       vatAmount: updates.vatAmount,
       totalAmount: updates.amount,

@@ -1438,7 +1438,7 @@ export default function App() {
       updates: Partial<
         Pick<
           ExpenseDocument,
-          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
+          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
         >
       >,
     ) => {
@@ -1455,6 +1455,7 @@ export default function App() {
         category: updates.category ?? document.category,
         description: updates.description ?? document.description,
         customer: updates.customer ?? document.customer,
+        paymentMethod: updates.paymentMethod ?? document.paymentMethod,
         netAmount: updates.netAmount ?? document.netAmount,
         vatAmount: updates.vatAmount ?? document.vatAmount,
         amount: updates.amount ?? document.amount,
@@ -2730,7 +2731,7 @@ export default function App() {
     reviewFields: Pick<
       ExpenseDocument,
       'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer'
-    >,
+    > & Partial<Pick<ExpenseDocument, 'paymentMethod'>>,
     successConfirmation?: {
       title: string;
       message: string;
@@ -5177,7 +5178,7 @@ function DocumentSheet({
   onUpdateReviewFields: (
     reviewFields: Pick<
       ExpenseDocument,
-      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer'
+      'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'currency' | 'taxRateApplied' | 'category' | 'description' | 'customer' | 'paymentMethod'
     >,
   ) => Promise<void>;
   onMarkSubmitted: () => void;
@@ -5188,6 +5189,7 @@ function DocumentSheet({
   const [netInput, setNetInput] = useState('0.00');
   const [vatInput, setVatInput] = useState('0.00');
   const [selectedCurrency, setSelectedCurrency] = useState('GBP');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('cash_personal');
   const [selectedTaxRate, setSelectedTaxRate] = useState<UkTaxRate>('No VAT');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
@@ -5207,6 +5209,7 @@ function DocumentSheet({
     setNetInput(formatMoneyInput(document.netAmount ?? document.amount));
     setVatInput(formatMoneyInput(document.vatAmount ?? document.taxAmount));
     setSelectedCurrency(document.currency || 'GBP');
+    setSelectedPaymentMethod(document.paymentMethod || 'cash_personal');
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setSelectedCategory(document.category ?? '');
     setDescriptionInput(document.description ?? '');
@@ -5410,6 +5413,25 @@ function DocumentSheet({
                 ))}
               </View>
             </View>
+            {document.workspaceContext === 'cost' ? (
+              <View style={styles.taxDropdown}>
+                <Text style={styles.taxDropdownLabel}>Payment method</Text>
+                <View style={styles.taxDropdownValueWrap}>
+                  {([
+                    ['cash_personal', 'Personal'],
+                    ['business_card', 'Company card'],
+                  ] as const).map(([method, label]) => (
+                    <Pressable
+                      key={method}
+                      style={[styles.taxDropdownOption, method === selectedPaymentMethod && styles.taxDropdownOptionActive]}
+                      onPress={() => setSelectedPaymentMethod(method)}
+                    >
+                      <Text style={[styles.taxDropdownOptionText, method === selectedPaymentMethod && styles.taxDropdownOptionTextActive]}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {vatTrackingEnabled && !foreignCurrencyDocument ? (
               <>
                 <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
@@ -5476,6 +5498,7 @@ function DocumentSheet({
                     category: selectedCategory || document.category,
                     description: descriptionInput.trim(),
                     customer: customerInput.trim(),
+                    paymentMethod: selectedPaymentMethod,
                     taxRateApplied: effectiveTaxRate,
                   });
                   setSavingValuesProgress(100);
