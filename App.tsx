@@ -37,6 +37,7 @@ import { loginWithEmail } from './src/services/auth';
 import { documentExtractionService, ExtractedDocumentDraft } from './src/services/documentExtraction';
 import {
   attachCloudReceiptToClaim,
+  addCloudMileageProof,
   createCloudClaim,
   deleteCloudClaim,
   deleteCloudReceipt,
@@ -1147,6 +1148,7 @@ export default function App() {
   const [mileageEndInput, setMileageEndInput] = useState('');
   const [mileageMilesInput, setMileageMilesInput] = useState('');
   const [mileageRateInput, setMileageRateInput] = useState('0.45');
+  const [mileageProof, setMileageProof] = useState<{ uri: string; fileName?: string | null; mimeType?: string | null } | null>(null);
   const [themeVisible, setThemeVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
@@ -2927,7 +2929,7 @@ export default function App() {
 
     const mileageAmount = Number((miles * rate).toFixed(2));
     try {
-      await createCloudClaim({
+      const createdClaim = await createCloudClaim({
         name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
         description: `${mileageStartInput.trim()} to ${mileageEndInput.trim()}`,
         currency: 'GBP',
@@ -2937,11 +2939,15 @@ export default function App() {
         totalMiles: miles,
         mileageRate: rate,
       });
+      if (mileageProof) {
+        await addCloudMileageProof(createdClaim.id, mileageProof);
+      }
       setMileageVisible(false);
       setMileageStartInput('');
       setMileageEndInput('');
       setMileageMilesInput('');
       setMileageRateInput(String(appState.organisationSettings?.mileageRate ?? 0.45));
+      setMileageProof(null);
       if (authSession) {
         try {
           await syncCloudWorkspace(authSession);
@@ -3366,11 +3372,18 @@ export default function App() {
           endPostcode={mileageEndInput}
           totalMiles={mileageMilesInput}
           mileageRate={mileageRateInput}
+          proofName={mileageProof?.fileName ?? null}
           onClose={() => setMileageVisible(false)}
           onChangeStartPostcode={setMileageStartInput}
           onChangeEndPostcode={setMileageEndInput}
           onChangeTotalMiles={setMileageMilesInput}
           onChangeMileageRate={setMileageRateInput}
+          onAddProof={() => void (async () => {
+            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!permission.granted) { Alert.alert('Photo permission needed', 'Allow photo access to attach journey proof.'); return; }
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
+            if (!result.canceled && result.assets[0]) setMileageProof(result.assets[0]);
+          })()}
           onSubmit={() => void submitMileageClaim()}
         />
 
@@ -3770,7 +3783,7 @@ function ClaimsScreen({
                   documents={documents}
                   expanded={expandedClaimId === claim.id}
                   onToggle={() => toggleClaim(claim.id)}
-                  claimableDocuments={claim.status === 'pending' ? claimableDocuments : []}
+                  claimableDocuments={claim.status === 'pending' && claim.claimType !== 'mileage' ? claimableDocuments : []}
                   onAttachDocument={onAttachDocument}
                   onDelete={onDeleteClaim}
                 />
@@ -3914,9 +3927,11 @@ function ClaimReportCard({
       <Pressable
         style={[styles.claimCardHeader, expanded && styles.claimCardHeaderExpanded]}
         onPress={onToggle}
+        onLongPress={claim.status === 'pending' && onDelete ? () => onDelete(claim) : undefined}
+        delayLongPress={500}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`${claim.name}, ${formatCurrency(claimTotal, claim.currency)}, ${statusLabel}`}
+        accessibilityLabel={`${claim.name}, ${formatCurrency(claimTotal, claim.currency)}, ${statusLabel}${claim.status === 'pending' ? '. Long press to delete this pending claim.' : ''}`}
       >
         <View style={styles.claimRowLeft}>
           <Text style={styles.claimName}>{claim.name}</Text>
@@ -3990,11 +4005,7 @@ function ClaimReportCard({
             <Text style={styles.claimTotalLabel}>Claim total</Text>
             <Text style={styles.claimTotalAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
           </View>
-          {claim.status === 'pending' && onDelete ? (
-            <Pressable style={styles.claimAttachButton} onPress={() => onDelete(claim)}>
-              <Text style={styles.claimAttachButtonText}>Delete claim</Text>
-            </Pressable>
-          ) : null}
+          {claim.status === 'pending' ? <Text style={styles.claimReceiptSummary}>Long press the claim heading to delete this pending claim.</Text> : null}
         </View>
       ) : null}
     </View>
@@ -4810,11 +4821,13 @@ function MileageClaimSheet({
   endPostcode,
   totalMiles,
   mileageRate,
+  proofName,
   onClose,
   onChangeStartPostcode,
   onChangeEndPostcode,
   onChangeTotalMiles,
   onChangeMileageRate,
+  onAddProof,
   onSubmit,
 }: {
   visible: boolean;
@@ -4822,11 +4835,13 @@ function MileageClaimSheet({
   endPostcode: string;
   totalMiles: string;
   mileageRate: string;
+  proofName: string | null;
   onClose: () => void;
   onChangeStartPostcode: (value: string) => void;
   onChangeEndPostcode: (value: string) => void;
   onChangeTotalMiles: (value: string) => void;
   onChangeMileageRate: (value: string) => void;
+  onAddProof: () => void;
   onSubmit: () => void;
 }) {
   if (!visible) {
@@ -4841,18 +4856,26 @@ function MileageClaimSheet({
         keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
       >
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
+        <ScrollView
+          style={styles.panelSheet}
+          contentContainerStyle={styles.panelSheetScrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View style={styles.documentSheetHandle} />
           <Text style={styles.panelTitle}>Create mileage claim</Text>
           <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} />
           <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} />
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} />
           <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} />
+          <Pressable style={styles.claimAttachButton} onPress={onAddProof}>
+            <Text style={styles.claimAttachButtonText}>{proofName ? `Proof image: ${proofName}` : 'Add journey proof image'}</Text>
+          </Pressable>
           <Text style={styles.claimSectionCopy}>Your requested rate is sent with the claim for your business admin to approve.</Text>
           <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
             <Text style={styles.panelPrimaryButtonText}>Create mileage claim</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -8383,6 +8406,9 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 58,
     maxHeight: '82%',
+  },
+  panelSheetScrollContent: {
+    paddingBottom: 58,
   },
   panelTitle: {
     fontSize: 22,

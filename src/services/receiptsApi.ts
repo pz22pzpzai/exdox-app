@@ -218,6 +218,21 @@ export async function createCloudClaim(input: {
   return data.claim;
 }
 
+export async function addCloudMileageProof(claimId: number, asset: { uri: string; fileName?: string | null; mimeType?: string | null }) {
+  const token = requireSessionToken();
+  const base64 = await (await import('expo-file-system/legacy')).readAsStringAsync(asset.uri, { encoding: 'base64' });
+  const mimeType = asset.mimeType === 'image/png' || asset.mimeType === 'image/webp' ? asset.mimeType : 'image/jpeg';
+  const response = await fetch(`${getApiBaseUrl()}/claims/${claimId}/evidence`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: asset.fileName || `journey-proof-${Date.now()}.jpg`, mimeType, base64 }),
+  });
+  const data = (await response.json()) as { success?: boolean; message?: string };
+  if (!response.ok || data.success === false) {
+    throw new Error(typeof data.message === 'string' ? data.message : 'Could not upload journey proof.');
+  }
+}
+
 export async function attachCloudReceiptToClaim(input: { receiptId: number; claimId: number }) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/claims/attach`, {
