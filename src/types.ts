@@ -112,6 +112,11 @@ export interface Claim {
   owner: string;
   description?: string;
   submittedOn?: string;
+  claimType?: 'standard' | 'mileage';
+  mileageStartPostcode?: string;
+  mileageEndPostcode?: string;
+  mileageTotalMiles?: number;
+  mileageRate?: number;
 }
 
 export interface Vehicle {

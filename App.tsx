@@ -2926,16 +2926,29 @@ export default function App() {
     try {
       await createCloudClaim({
         name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
-        description: `${mileageStartInput.trim()} to ${mileageEndInput.trim()} | ${miles.toFixed(1)} miles | Estimated value ${formatCurrency(mileageAmount)}`,
+        description: `${mileageStartInput.trim()} to ${mileageEndInput.trim()}`,
         currency: 'GBP',
+        claimType: 'mileage',
+        startPostcode: mileageStartInput.trim(),
+        endPostcode: mileageEndInput.trim(),
+        totalMiles: miles,
       });
       setMileageVisible(false);
       setMileageStartInput('');
       setMileageEndInput('');
       setMileageMilesInput('');
       if (authSession) {
-        await syncCloudWorkspace(authSession);
+        try {
+          await syncCloudWorkspace(authSession);
+        } catch (syncError) {
+          void recordError('refresh mileage claims after submission', syncError);
+        }
       }
+      setActiveTab('claims');
+      Alert.alert(
+        'Mileage claim submitted',
+        `${miles.toFixed(1)} miles from ${mileageStartInput.trim()} to ${mileageEndInput.trim()} (${formatCurrency(mileageAmount)}) has been sent to your employer for review.`,
+      );
     } catch (error) {
       void recordError('submit mileage claim', error);
       Alert.alert('Mileage claim failed', error instanceof Error ? error.message : 'Could not create the mileage claim.');
@@ -4757,7 +4770,11 @@ function MileageClaimSheet({
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
+      <KeyboardAvoidingView
+        style={styles.sheetBackdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+      >
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
         <View style={styles.panelSheet}>
           <View style={styles.documentSheetHandle} />
@@ -4769,7 +4786,7 @@ function MileageClaimSheet({
             <Text style={styles.panelPrimaryButtonText}>Create mileage claim</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -105,6 +105,11 @@ type ClaimApiResponse = {
     currency: string;
     createdByUserId: number;
     createdAt: string;
+    claimType?: 'standard' | 'mileage';
+    mileageStartPostcode?: string | null;
+    mileageEndPostcode?: string | null;
+    mileageTotalMiles?: number | null;
+    mileageRate?: number | null;
   }>;
 };
 
@@ -174,11 +179,24 @@ export async function fetchExpenseClaims() {
       trip: claim.description ?? 'Expense claim',
       owner: `User ${claim.createdByUserId}`,
       submittedOn: claim.createdAt,
+      claimType: claim.claimType,
+      mileageStartPostcode: claim.mileageStartPostcode ?? undefined,
+      mileageEndPostcode: claim.mileageEndPostcode ?? undefined,
+      mileageTotalMiles: claim.mileageTotalMiles ?? undefined,
+      mileageRate: claim.mileageRate ?? undefined,
     }),
   );
 }
 
-export async function createCloudClaim(input: { name: string; description?: string; currency?: string }) {
+export async function createCloudClaim(input: {
+  name: string;
+  description?: string;
+  currency?: string;
+  claimType?: 'standard' | 'mileage';
+  startPostcode?: string;
+  endPostcode?: string;
+  totalMiles?: number;
+}) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/claims`, {
     method: 'POST',
