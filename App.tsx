@@ -5038,13 +5038,15 @@ function CaptureReviewScreen({
   ownerName: string;
   onClose: () => void;
   onSubmit: (
-    reviewFields: Pick<ExpenseDocument, 'category' | 'description' | 'customer' | 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied' | 'paymentMethod'>,
+    reviewFields: Pick<ExpenseDocument, 'category' | 'description' | 'customer' | 'amount' | 'netAmount' | 'vatAmount' | 'taxAmount' | 'taxRateApplied'> &
+      Partial<Pick<ExpenseDocument, 'paymentMethod'>>,
   ) => Promise<void>;
 }) {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
   const [customerInput, setCustomerInput] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('cash_personal');
+  const [paymentMethodOverridden, setPaymentMethodOverridden] = useState(false);
   const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
   const [categorySearchInput, setCategorySearchInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -5058,10 +5060,21 @@ function CaptureReviewScreen({
     setDescriptionInput(document.description ?? '');
     setCustomerInput(document.customer ?? '');
     setSelectedPaymentMethod(document.paymentMethod || 'cash_personal');
+    setPaymentMethodOverridden(false);
     setCategoryPickerVisible(false);
     setCategorySearchInput('');
     setSubmitting(false);
   }, [document?.id]);
+
+  useEffect(() => {
+    if (!document || paymentMethodOverridden) {
+      return;
+    }
+
+    // OCR may finish after this screen opens. Keep the untouched choice aligned
+    // with the server classification, while preserving an explicit user choice.
+    setSelectedPaymentMethod(document.paymentMethod || 'cash_personal');
+  }, [document?.paymentMethod, paymentMethodOverridden]);
 
   if (!document) {
     return null;
@@ -5128,7 +5141,10 @@ function CaptureReviewScreen({
                         styles.captureReviewPaymentMethodOption,
                         method === selectedPaymentMethod && styles.captureReviewPaymentMethodOptionActive,
                       ]}
-                      onPress={() => setSelectedPaymentMethod(method)}
+                      onPress={() => {
+                        setSelectedPaymentMethod(method);
+                        setPaymentMethodOverridden(true);
+                      }}
                     >
                       <Text
                         style={[
@@ -5172,7 +5188,7 @@ function CaptureReviewScreen({
                     vatAmount: document.vatAmount,
                     taxAmount: document.taxAmount,
                     taxRateApplied: document.taxRateApplied,
-                    paymentMethod: selectedPaymentMethod,
+                    ...(paymentMethodOverridden ? { paymentMethod: selectedPaymentMethod } : {}),
                   });
                 } finally {
                   setSubmitting(false);
