@@ -38,13 +38,14 @@ import { documentExtractionService, ExtractedDocumentDraft } from './src/service
 import {
   attachCloudReceiptToClaim,
   createCloudClaim,
+  deleteCloudClaim,
   deleteCloudReceipt,
   fetchCloudReceiptAssetUrl,
   fetchCloudReceipts,
   fetchExpenseClaims,
   updateCloudReceipt,
 } from './src/services/receiptsApi';
-import { fetchOrganisationSettings } from './src/services/settingsApi';
+import { fetchOrganisationSettings, saveOrganisationSettings } from './src/services/settingsApi';
 import { setSessionToken } from './src/services/session';
 import { colors, radius, spacing } from './src/theme';
 import {
@@ -1145,6 +1146,7 @@ export default function App() {
   const [mileageStartInput, setMileageStartInput] = useState('');
   const [mileageEndInput, setMileageEndInput] = useState('');
   const [mileageMilesInput, setMileageMilesInput] = useState('');
+  const [mileageRateInput, setMileageRateInput] = useState('0.45');
   const [themeVisible, setThemeVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
@@ -2913,16 +2915,17 @@ export default function App() {
   });
 
   const canDeleteDocument = (document: ExpenseDocument) =>
-    !document.cloudReceiptId || Boolean(authSession && document.uploadedByUserId === authSession.user.id);
+    !document.cloudReceiptId || Boolean(authSession && (authSession.user.role === 'Business_Admin' || document.uploadedByUserId === authSession.user.id));
 
   const submitMileageClaim = useEffectEvent(async () => {
     const miles = Number.parseFloat(mileageMilesInput);
-    if (!mileageStartInput.trim() || !mileageEndInput.trim() || !Number.isFinite(miles) || miles <= 0) {
-      Alert.alert('Mileage details needed', 'Add the start postcode, end postcode, and total miles.');
+    const rate = Number.parseFloat(mileageRateInput);
+    if (!mileageStartInput.trim() || !mileageEndInput.trim() || !Number.isFinite(miles) || miles <= 0 || !Number.isFinite(rate) || rate <= 0) {
+      Alert.alert('Mileage details needed', 'Add the start postcode, end postcode, total miles, and rate per mile.');
       return;
     }
 
-    const mileageAmount = Number((miles * 0.45).toFixed(2));
+    const mileageAmount = Number((miles * rate).toFixed(2));
     try {
       await createCloudClaim({
         name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
@@ -2932,11 +2935,13 @@ export default function App() {
         startPostcode: mileageStartInput.trim(),
         endPostcode: mileageEndInput.trim(),
         totalMiles: miles,
+        mileageRate: rate,
       });
       setMileageVisible(false);
       setMileageStartInput('');
       setMileageEndInput('');
       setMileageMilesInput('');
+      setMileageRateInput(String(appState.organisationSettings?.mileageRate ?? 0.45));
       if (authSession) {
         try {
           await syncCloudWorkspace(authSession);
@@ -2953,6 +2958,21 @@ export default function App() {
       void recordError('submit mileage claim', error);
       Alert.alert('Mileage claim failed', error instanceof Error ? error.message : 'Could not create the mileage claim.');
     }
+  });
+
+  const confirmDeleteClaim = useEffectEvent((claim: Claim) => {
+    if (!claim.cloudClaimId || claim.status !== 'pending') return;
+    Alert.alert('Delete expense claim?', 'Its purchases will return to Purchases and can be added to another claim.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete claim', style: 'destructive', onPress: () => void (async () => {
+        try {
+          await deleteCloudClaim(claim.cloudClaimId!);
+          updateState((current) => ({ ...current, claims: current.claims.filter((item) => item.id !== claim.id), documents: current.documents.map((document) => document.claimId === claim.id ? { ...document, claimId: undefined } : document) }));
+          if (authSession) await syncCloudWorkspace(authSession);
+          Alert.alert('Expense claim deleted', 'The purchases are available again.');
+        } catch (error) { Alert.alert('Could not delete claim', error instanceof Error ? error.message : 'Please try again.'); }
+      }) },
+    ]);
   });
 
   const saveVehicle = () => {
@@ -3122,6 +3142,7 @@ export default function App() {
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
               onOpenDocument={setSelectedDocumentId}
+              onDeleteClaim={confirmDeleteClaim}
             />
           )}
           {activeTab === 'reports' && (
@@ -3136,6 +3157,7 @@ export default function App() {
               onCreateClaim={handleOpenClaimComposer}
               onAttachDocument={(claim, document) => void handleAttachToClaim(claim, document)}
               onOpenDocument={setSelectedDocumentId}
+              onDeleteClaim={confirmDeleteClaim}
             />
           )}
           {activeTab === 'more' && (
@@ -3144,12 +3166,24 @@ export default function App() {
               accountEmail={authSession.user.email}
               role={authSession.user.role}
               settings={appState.settings}
+              organisationSettings={appState.organisationSettings}
               errorLogCount={errorLogs.length}
               onUpdateSetting={updateSettings}
               onOpenTheme={() => setThemeVisible(true)}
               onOpenPanel={setSettingsPanelTarget}
               onOpenArchive={() => setSettingsPanelTarget('archive')}
               onOpenErrorLog={() => setErrorLogVisible(true)}
+              onSaveMileageRate={async (value) => {
+                const rate = Number.parseFloat(value);
+                const current = appState.organisationSettings;
+                if (!current || !Number.isFinite(rate) || rate <= 0) {
+                  Alert.alert('Mileage rate', 'Enter a positive mileage rate.');
+                  return;
+                }
+                const settings = await saveOrganisationSettings({ baseCurrency: current.baseCurrency, isVatRegistered: current.isVatRegistered, defaultTaxRate: current.defaultTaxRate, mileageRate: rate });
+                updateState((state) => ({ ...state, organisationSettings: settings }));
+                Alert.alert('Mileage rate saved', `${formatCurrency(settings.mileageRate)} per mile is now the approved default.`);
+              }}
               onSignOut={() => void handleSignOut()}
             />
           )}
@@ -3331,10 +3365,12 @@ export default function App() {
           startPostcode={mileageStartInput}
           endPostcode={mileageEndInput}
           totalMiles={mileageMilesInput}
+          mileageRate={mileageRateInput}
           onClose={() => setMileageVisible(false)}
           onChangeStartPostcode={setMileageStartInput}
           onChangeEndPostcode={setMileageEndInput}
           onChangeTotalMiles={setMileageMilesInput}
+          onChangeMileageRate={setMileageRateInput}
           onSubmit={() => void submitMileageClaim()}
         />
 
@@ -3636,6 +3672,7 @@ function ClaimsScreen({
   onCreateClaim,
   onAttachDocument,
   onOpenDocument,
+  onDeleteClaim,
 }: {
   claims: Claim[];
   documents: ExpenseDocument[];
@@ -3645,6 +3682,7 @@ function ClaimsScreen({
   onCreateClaim: () => void;
   onAttachDocument: (claim: Claim, document: ExpenseDocument) => void;
   onOpenDocument: (documentId: string) => void;
+  onDeleteClaim: (claim: Claim) => void;
 }) {
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
   const [expandedPaymentRoundId, setExpandedPaymentRoundId] = useState<string | null>(null);
@@ -3734,6 +3772,7 @@ function ClaimsScreen({
                   onToggle={() => toggleClaim(claim.id)}
                   claimableDocuments={claim.status === 'pending' ? claimableDocuments : []}
                   onAttachDocument={onAttachDocument}
+                  onDelete={onDeleteClaim}
                 />
               ))}
             </View>
@@ -3851,6 +3890,7 @@ function ClaimReportCard({
   onToggle,
   claimableDocuments = [],
   onAttachDocument,
+  onDelete,
 }: {
   claim: Claim;
   documents: ExpenseDocument[];
@@ -3858,6 +3898,7 @@ function ClaimReportCard({
   onToggle: () => void;
   claimableDocuments?: ExpenseDocument[];
   onAttachDocument?: (claim: Claim, document: ExpenseDocument) => void;
+  onDelete?: (claim: Claim) => void;
 }) {
   const linkedDocuments = documents.filter((document) => document.claimId === claim.id);
   const itemCount = Math.max(claim.documentCount ?? 0, claim.documentIds.length, linkedDocuments.length);
@@ -3949,6 +3990,11 @@ function ClaimReportCard({
             <Text style={styles.claimTotalLabel}>Claim total</Text>
             <Text style={styles.claimTotalAmount}>{formatCurrency(claimTotal, claim.currency)}</Text>
           </View>
+          {claim.status === 'pending' && onDelete ? (
+            <Pressable style={styles.claimAttachButton} onPress={() => onDelete(claim)}>
+              <Text style={styles.claimAttachButtonText}>Delete claim</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -4130,26 +4176,32 @@ function SettingsScreen({
   accountEmail,
   role,
   settings,
+  organisationSettings,
   errorLogCount,
   onUpdateSetting,
   onOpenTheme,
   onOpenPanel,
   onOpenArchive,
   onOpenErrorLog,
+  onSaveMileageRate,
   onSignOut,
 }: {
   accountName: string;
   accountEmail: string;
   role: 'Business_Admin' | 'Standard_Employee';
   settings: UserSettings;
+  organisationSettings: OrganisationSettings | null;
   errorLogCount: number;
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   onOpenTheme: () => void;
   onOpenPanel: (target: SettingsPanelTarget) => void;
   onOpenArchive: () => void;
   onOpenErrorLog: () => void;
+  onSaveMileageRate: (value: string) => Promise<void>;
   onSignOut: () => void;
 }) {
+  const [mileageRate, setMileageRate] = useState(String(organisationSettings?.mileageRate ?? 0.45));
+  useEffect(() => setMileageRate(String(organisationSettings?.mileageRate ?? 0.45)), [organisationSettings?.mileageRate]);
   return (
     <View>
       <View style={styles.profileRow}>
@@ -4166,7 +4218,16 @@ function SettingsScreen({
       </View>
 
       {role === 'Business_Admin' ? (
-        <SettingsButton icon="business-outline" label="Business admin access" onPress={() => onOpenPanel('business_admin')} />
+        <>
+          <SettingsButton icon="business-outline" label="Business admin access" onPress={() => onOpenPanel('business_admin')} />
+          <View style={styles.settingsGroup}>
+            <Text style={styles.settingLabel}>Approved mileage rate per mile</Text>
+            <TextInput value={mileageRate} onChangeText={setMileageRate} keyboardType="decimal-pad" style={styles.panelInput} placeholder="0.45" />
+            <Pressable style={styles.panelPrimaryButton} onPress={() => void onSaveMileageRate(mileageRate)}>
+              <Text style={styles.panelPrimaryButtonText}>Save mileage rate</Text>
+            </Pressable>
+          </View>
+        </>
       ) : null}
       <SettingsButton icon="people-outline" label="Logins" onPress={() => onOpenPanel('logins')} />
       <SettingsButton icon="mail-outline" label="Extract by email" onPress={() => onOpenPanel('extract_email')} />
@@ -4748,20 +4809,24 @@ function MileageClaimSheet({
   startPostcode,
   endPostcode,
   totalMiles,
+  mileageRate,
   onClose,
   onChangeStartPostcode,
   onChangeEndPostcode,
   onChangeTotalMiles,
+  onChangeMileageRate,
   onSubmit,
 }: {
   visible: boolean;
   startPostcode: string;
   endPostcode: string;
   totalMiles: string;
+  mileageRate: string;
   onClose: () => void;
   onChangeStartPostcode: (value: string) => void;
   onChangeEndPostcode: (value: string) => void;
   onChangeTotalMiles: (value: string) => void;
+  onChangeMileageRate: (value: string) => void;
   onSubmit: () => void;
 }) {
   if (!visible) {
@@ -4782,6 +4847,8 @@ function MileageClaimSheet({
           <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} />
           <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} />
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} />
+          <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} />
+          <Text style={styles.claimSectionCopy}>Your requested rate is sent with the claim for your business admin to approve.</Text>
           <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
             <Text style={styles.panelPrimaryButtonText}>Create mileage claim</Text>
           </Pressable>

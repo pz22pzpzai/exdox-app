@@ -140,6 +140,7 @@ export interface OrganisationSettings {
   baseCurrency: string;
   isVatRegistered: boolean;
   defaultTaxRate: UkTaxRate;
+  mileageRate: number;
 }
 
 export interface AppState {

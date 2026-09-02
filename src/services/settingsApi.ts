@@ -11,6 +11,7 @@ type SettingsResponse =
         baseCurrency: string;
         isVatRegistered: boolean;
         defaultTaxRate: OrganisationSettings['defaultTaxRate'];
+        mileageRate: number;
       };
     }
   | {
@@ -35,7 +36,7 @@ export async function fetchOrganisationSettings() {
 }
 
 export async function saveOrganisationSettings(
-  payload: Pick<OrganisationSettings, 'baseCurrency' | 'isVatRegistered' | 'defaultTaxRate'>,
+  payload: Pick<OrganisationSettings, 'baseCurrency' | 'isVatRegistered' | 'defaultTaxRate' | 'mileageRate'>,
 ) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/settings`, {

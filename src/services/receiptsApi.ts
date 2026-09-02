@@ -196,6 +196,7 @@ export async function createCloudClaim(input: {
   startPostcode?: string;
   endPostcode?: string;
   totalMiles?: number;
+  mileageRate?: number;
 }) {
   const token = requireSessionToken();
   const response = await fetch(`${getApiBaseUrl()}/claims`, {
@@ -250,6 +251,18 @@ export async function deleteCloudReceipt(receiptId: number) {
   const data = (await response.json()) as { success?: boolean; message?: string };
   if (!response.ok || data.success === false) {
     throw new Error(typeof data.message === 'string' ? data.message : 'Could not delete this receipt.');
+  }
+}
+
+export async function deleteCloudClaim(claimId: number) {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/claims/${claimId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = (await response.json()) as { success?: boolean; message?: string };
+  if (!response.ok || data.success === false) {
+    throw new Error(typeof data.message === 'string' ? data.message : 'Could not delete this expense claim.');
   }
 }
 
