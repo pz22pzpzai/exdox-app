@@ -103,8 +103,8 @@ android {
         applicationId 'uk.co.exdox.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "1.0.18"
+        versionCode 20
+        versionName "1.0.19"
 
         if (exdoxArm64Only) {
             ndk {

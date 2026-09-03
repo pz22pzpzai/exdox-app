@@ -115,6 +115,12 @@ type VaultUploadState = {
   status: string;
 };
 
+type MileageSubmissionState = {
+  visible: boolean;
+  progress: number;
+  status: string;
+};
+
 const brandBadge = require('./assets/brand-badge.png');
 const workspaceName = 'Exdox Workspace';
 const TAX_RATE_OPTIONS: UkTaxRate[] = ['20% Standard', '5% Reduced', '0% Zero', 'Exempt', 'No VAT'];
@@ -1124,6 +1130,7 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [vaultUpload, setVaultUpload] = useState<VaultUploadState>({ visible: false, progress: 0, status: '' });
+  const [mileageSubmission, setMileageSubmission] = useState<MileageSubmissionState>({ visible: false, progress: 0, status: '' });
   const [errorLogs, setErrorLogs] = useState<AppErrorLog[]>([]);
   const [diagnosticLogs, setDiagnosticLogs] = useState<AppErrorLog[]>([]);
   const [cloudSyncState, setCloudSyncState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle');
@@ -1148,7 +1155,7 @@ export default function App() {
   const [mileageEndInput, setMileageEndInput] = useState('');
   const [mileageMilesInput, setMileageMilesInput] = useState('');
   const [mileageRateInput, setMileageRateInput] = useState('0.45');
-  const [mileageProof, setMileageProof] = useState<{ uri: string; fileName?: string | null; mimeType?: string | null } | null>(null);
+  const [mileageProofs, setMileageProofs] = useState<{ uri: string; fileName?: string | null; mimeType?: string | null }[]>([]);
   const [themeVisible, setThemeVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
@@ -1258,7 +1265,7 @@ export default function App() {
 
       try {
         [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
-          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
         ]);
@@ -1269,7 +1276,7 @@ export default function App() {
 
         await delay(1200);
         [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
-          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
         ]);
@@ -1312,7 +1319,7 @@ export default function App() {
         ]);
 
         [costDocuments, salesDocuments] = await Promise.all([
-          fetchCloudReceipts('cost'),
+          fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
         ]);
         if (cloudSyncAttemptRef.current !== attemptId) {
@@ -2928,10 +2935,13 @@ export default function App() {
     }
 
     const mileageAmount = Number((miles * rate).toFixed(2));
+    const journey = `${mileageStartInput.trim()} to ${mileageEndInput.trim()}`;
+    let createdClaimId: number | null = null;
+    setMileageSubmission({ visible: true, progress: 8, status: 'Creating your mileage claim…' });
     try {
       const createdClaim = await createCloudClaim({
         name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
-        description: `${mileageStartInput.trim()} to ${mileageEndInput.trim()}`,
+        description: journey,
         currency: 'GBP',
         claimType: 'mileage',
         startPostcode: mileageStartInput.trim(),
@@ -2939,15 +2949,30 @@ export default function App() {
         totalMiles: miles,
         mileageRate: rate,
       });
-      if (mileageProof) {
-        await addCloudMileageProof(createdClaim.id, mileageProof);
+      createdClaimId = createdClaim.id;
+      setMileageSubmission({
+        visible: true,
+        progress: mileageProofs.length ? 22 : 82,
+        status: mileageProofs.length ? `Claim created. Uploading proof 1 of ${mileageProofs.length}…` : 'Claim created. Refreshing your Purchases…',
+      });
+      for (let index = 0; index < mileageProofs.length; index += 1) {
+        await addCloudMileageProof(createdClaim.id, mileageProofs[index]);
+        const uploadedCount = index + 1;
+        setMileageSubmission({
+          visible: true,
+          progress: Math.round(22 + (uploadedCount / mileageProofs.length) * 60),
+          status: uploadedCount === mileageProofs.length
+            ? 'Proof images uploaded. Refreshing your Purchases…'
+            : `Uploaded proof ${uploadedCount} of ${mileageProofs.length}. Uploading the next image…`,
+        });
       }
+      setMileageSubmission({ visible: true, progress: 90, status: 'Adding your mileage cost to Purchases…' });
       setMileageVisible(false);
       setMileageStartInput('');
       setMileageEndInput('');
       setMileageMilesInput('');
       setMileageRateInput(String(appState.organisationSettings?.mileageRate ?? 0.45));
-      setMileageProof(null);
+      setMileageProofs([]);
       if (authSession) {
         try {
           await syncCloudWorkspace(authSession);
@@ -2955,14 +2980,23 @@ export default function App() {
           void recordError('refresh mileage claims after submission', syncError);
         }
       }
-      setActiveTab('claims');
+      setMileageSubmission({ visible: true, progress: 100, status: 'Mileage claim submitted.' });
+      await delay(350);
+      setActiveTab('costs');
       Alert.alert(
         'Mileage claim submitted',
-        `${miles.toFixed(1)} miles from ${mileageStartInput.trim()} to ${mileageEndInput.trim()} (${formatCurrency(mileageAmount)}) has been sent to your employer for review.`,
+        `${miles.toFixed(1)} miles from ${journey} (${formatCurrency(mileageAmount)}) has been sent to your employer for review and is now in Purchases.`,
       );
     } catch (error) {
       void recordError('submit mileage claim', error);
-      Alert.alert('Mileage claim failed', error instanceof Error ? error.message : 'Could not create the mileage claim.');
+      Alert.alert(
+        createdClaimId ? 'Mileage claim saved, but proof upload failed' : 'Mileage claim failed',
+        createdClaimId
+          ? `${error instanceof Error ? error.message : 'A journey proof image could not be uploaded.'} The mileage claim was created. Open it from Purchases or Expense claims and try again after checking your signal.`
+          : error instanceof Error ? error.message : 'Could not create the mileage claim.',
+      );
+    } finally {
+      setMileageSubmission({ visible: false, progress: 0, status: '' });
     }
   });
 
@@ -3245,6 +3279,12 @@ export default function App() {
           status={vaultUpload.status}
         />
 
+        <MileageSubmissionProgress
+          visible={mileageSubmission.visible}
+          progress={mileageSubmission.progress}
+          status={mileageSubmission.status}
+        />
+
         <CaptureReviewScreen
           document={captureReviewDocument}
           ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
@@ -3372,8 +3412,9 @@ export default function App() {
           endPostcode={mileageEndInput}
           totalMiles={mileageMilesInput}
           mileageRate={mileageRateInput}
-          proofName={mileageProof?.fileName ?? null}
-          onClose={() => setMileageVisible(false)}
+          proofNames={mileageProofs.map((proof, index) => proof.fileName || `Journey proof ${index + 1}`)}
+          submitting={mileageSubmission.visible}
+          onClose={() => !mileageSubmission.visible && setMileageVisible(false)}
           onChangeStartPostcode={setMileageStartInput}
           onChangeEndPostcode={setMileageEndInput}
           onChangeTotalMiles={setMileageMilesInput}
@@ -3381,8 +3422,15 @@ export default function App() {
           onAddProof={() => void (async () => {
             const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (!permission.granted) { Alert.alert('Photo permission needed', 'Allow photo access to attach journey proof.'); return; }
-            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-            if (!result.canceled && result.assets[0]) setMileageProof(result.assets[0]);
+            const remainingSlots = 5 - mileageProofs.length;
+            if (remainingSlots <= 0) { Alert.alert('Proof images added', 'You can attach up to five journey proof images to a mileage claim.'); return; }
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: remainingSlots, quality: 0.7 });
+            if (!result.canceled && result.assets.length) {
+              setMileageProofs((current) => {
+                const selected = result.assets.filter((asset) => !current.some((proof) => proof.uri === asset.uri));
+                return [...current, ...selected].slice(0, 5);
+              });
+            }
           })()}
           onSubmit={() => void submitMileageClaim()}
         />
@@ -4631,6 +4679,39 @@ function VaultUploadProgress({
   );
 }
 
+function MileageSubmissionProgress({
+  visible,
+  progress,
+  status,
+}: MileageSubmissionState) {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={() => undefined}>
+      <View style={styles.vaultUploadBackdrop}>
+        <View
+          style={styles.vaultUploadCard}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Submitting mileage claim"
+          accessibilityValue={{ min: 0, max: 100, now: progress }}
+        >
+          <View style={styles.vaultUploadIcon}>
+            <Ionicons name="car-outline" size={30} color={colors.white} />
+          </View>
+          <Text style={styles.vaultUploadTitle}>Submitting mileage claim</Text>
+          <Text style={styles.vaultUploadStatus}>{status}</Text>
+          <View style={styles.vaultUploadTrack}>
+            <View style={[styles.vaultUploadFill, { width: `${progress}%` }]} />
+          </View>
+          <Text style={styles.vaultUploadPercent}>{`${Math.round(progress)}%`}</Text>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function NotificationsSheet({
   visible,
   notifications,
@@ -4821,7 +4902,8 @@ function MileageClaimSheet({
   endPostcode,
   totalMiles,
   mileageRate,
-  proofName,
+  proofNames,
+  submitting,
   onClose,
   onChangeStartPostcode,
   onChangeEndPostcode,
@@ -4835,7 +4917,8 @@ function MileageClaimSheet({
   endPostcode: string;
   totalMiles: string;
   mileageRate: string;
-  proofName: string | null;
+  proofNames: string[];
+  submitting: boolean;
   onClose: () => void;
   onChangeStartPostcode: (value: string) => void;
   onChangeEndPostcode: (value: string) => void;
@@ -4855,7 +4938,7 @@ function MileageClaimSheet({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
       >
-        <Pressable style={styles.sheetOverlay} onPress={onClose} />
+        <Pressable style={styles.sheetOverlay} onPress={onClose} disabled={submitting} />
         <ScrollView
           style={styles.panelSheet}
           contentContainerStyle={styles.panelSheetScrollContent}
@@ -4864,16 +4947,17 @@ function MileageClaimSheet({
         >
           <View style={styles.documentSheetHandle} />
           <Text style={styles.panelTitle}>Create mileage claim</Text>
-          <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} />
-          <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} />
-          <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} />
-          <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} />
-          <Pressable style={styles.claimAttachButton} onPress={onAddProof}>
-            <Text style={styles.claimAttachButtonText}>{proofName ? `Proof image: ${proofName}` : 'Add journey proof image'}</Text>
+          <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} editable={!submitting} />
+          <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} editable={!submitting} />
+          <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
+          <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
+          <Pressable style={[styles.claimAttachButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onAddProof} disabled={submitting}>
+            <Text style={styles.claimAttachButtonText}>{proofNames.length ? `Journey proof images (${proofNames.length}/5)` : 'Add journey proof images (up to 5)'}</Text>
           </Pressable>
+          {proofNames.map((proofName, index) => <Text key={`${proofName}-${index}`} style={styles.claimSectionCopy}>{`${index + 1}. ${proofName}`}</Text>)}
           <Text style={styles.claimSectionCopy}>Your requested rate is sent with the claim for your business admin to approve.</Text>
-          <Pressable style={styles.panelPrimaryButton} onPress={onSubmit}>
-            <Text style={styles.panelPrimaryButtonText}>Create mileage claim</Text>
+          <Pressable style={[styles.panelPrimaryButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onSubmit} disabled={submitting}>
+            <Text style={styles.panelPrimaryButtonText}>{submitting ? 'Submitting mileage claim…' : 'Create mileage claim'}</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
