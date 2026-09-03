@@ -75,6 +75,7 @@ export interface ExpenseDocument {
   source: 'camera' | 'gallery' | 'files' | 'seeded';
   claimId?: string;
   cloudReceiptId?: number;
+  mileageClaimId?: number;
   uploadedByUserId?: number;
   uploadedByEmail?: string | null;
   storageKey?: string;

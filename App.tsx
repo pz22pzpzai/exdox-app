@@ -2688,14 +2688,37 @@ export default function App() {
 
   const deleteDocument = useEffectEvent(async (document: ExpenseDocument) => {
     if (
-      document.cloudReceiptId &&
-      (!authSession || document.uploadedByUserId !== authSession.user.id)
+      !authSession ||
+      (authSession.user.role !== 'Business_Admin' && document.uploadedByUserId !== authSession.user.id)
     ) {
       Alert.alert(
         'This item belongs to another account',
         'Only the Exdox account that uploaded this item can delete it from the app.',
       );
       return;
+    }
+    if (document.mileageClaimId) {
+      if (document.status !== 'awaiting_review') {
+        Alert.alert('Mileage claim reviewed', 'Only a mileage claim that has not been reviewed can be deleted.');
+        return;
+      }
+      try {
+        // Mileage Costs are projections of claims, not receipts. Their
+        // synthetic receipt IDs cannot be sent to the receipt-delete route.
+        await deleteCloudClaim(document.mileageClaimId);
+        updateState((current) => ({
+          ...current,
+          documents: current.documents.filter((item) => item.id !== document.id),
+          claims: current.claims.filter((claim) => claim.cloudClaimId !== document.mileageClaimId),
+        }));
+        setSelectedDocumentId((current) => (current === document.id ? null : current));
+        await syncCloudWorkspace(authSession);
+        return;
+      } catch (error) {
+        void recordError('delete mileage claim', error);
+        Alert.alert('Delete failed', error instanceof Error ? error.message : 'Could not delete this mileage claim.');
+        return;
+      }
     }
     if (document.claimId) {
       Alert.alert(
@@ -2727,8 +2750,10 @@ export default function App() {
 
   const confirmDeleteDocument = useEffectEvent((document: ExpenseDocument) => {
     Alert.alert(
-      'Delete document',
-      `Delete ${document.title} from both the app and dashboard? This cannot be undone.`,
+      document.mileageClaimId ? 'Delete mileage claim' : 'Delete document',
+      document.mileageClaimId
+        ? 'Delete this unreviewed mileage claim from both the app and dashboard? This cannot be undone.'
+        : `Delete ${document.title} from both the app and dashboard? This cannot be undone.`,
       [
         {
           text: 'Cancel',
@@ -2924,7 +2949,11 @@ export default function App() {
   });
 
   const canDeleteDocument = (document: ExpenseDocument) =>
-    !document.cloudReceiptId || Boolean(authSession && (authSession.user.role === 'Business_Admin' || document.uploadedByUserId === authSession.user.id));
+    Boolean(
+      authSession &&
+      (authSession.user.role === 'Business_Admin' || document.uploadedByUserId === authSession.user.id) &&
+      (!document.mileageClaimId || document.status === 'awaiting_review'),
+    );
 
   const submitMileageClaim = useEffectEvent(async () => {
     const miles = Number.parseFloat(mileageMilesInput);

@@ -50,6 +50,7 @@ type ReceiptApiResponse = {
     paymentMethodReviewRequired?: boolean;
     matchedCompanyCardId?: number | null;
     claimId: number | null;
+    mileageClaimId?: number | null;
     status: string | null;
     sourceFilename: string;
     s3Bucket: string;
@@ -402,6 +403,7 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
     fileName: receipt.sourceFilename,
     source: 'files',
     claimId: receipt.claimId === null ? undefined : `claim-${receipt.claimId}`,
+    mileageClaimId: receipt.mileageClaimId ?? undefined,
     cloudReceiptId: receipt.id,
     uploadedByUserId: receipt.uploadedByUserId,
     uploadedByEmail: receipt.uploadedByEmail ?? null,
