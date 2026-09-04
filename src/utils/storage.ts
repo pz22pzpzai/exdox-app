@@ -15,13 +15,20 @@ export const loadStoredState = async () => {
   return saved ? normalizeState(JSON.parse(saved) as Partial<AppState>) : null;
 };
 
-export const loadScopedStoredState = async (scope: string) => {
-  const saved = await AsyncStorage.getItem(getScopedStateKey(scope));
+export const buildWorkspaceStateScope = (userId: number, organisationId: number) => `user-${userId}-organisation-${organisationId}`;
+
+export const loadScopedStoredState = async (scope: string, legacyScope?: string) => {
+  const saved = await AsyncStorage.getItem(getScopedStateKey(scope)) ??
+    (legacyScope ? await AsyncStorage.getItem(getScopedStateKey(legacyScope)) : null);
   return saved ? normalizeState(JSON.parse(saved) as Partial<AppState>) : null;
 };
 
 export const saveStoredState = async (state: AppState, scope?: string) => {
   await AsyncStorage.setItem(scope ? getScopedStateKey(scope) : STORAGE_KEY, JSON.stringify(state));
+};
+
+export const clearScopedStoredState = async (scope: string) => {
+  await AsyncStorage.removeItem(getScopedStateKey(scope));
 };
 
 export const loadStoredErrorLogs = async () => {

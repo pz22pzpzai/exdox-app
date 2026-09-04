@@ -75,6 +75,8 @@ import { prepareCombinedImageDocumentForApp, prepareImportedImageForApp } from '
 import {
   appendStoredDiagnosticLog,
   appendStoredErrorLog,
+  buildWorkspaceStateScope,
+  clearScopedStoredState,
   clearStoredDiagnosticLogs,
   clearStoredErrorLogs,
   loadScopedStoredState,
@@ -441,6 +443,20 @@ const canHydrateDocumentPreview = (document: Pick<ExpenseDocument, 'fileName'>) 
 
 const isRemotePreviewUri = (uri: string | undefined) => /^https?:\/\//i.test(uri ?? '');
 
+let cloudPreviewCacheScope = 'signed-out';
+
+const setCloudPreviewCacheScope = (userId: number, organisationId: number) => {
+  cloudPreviewCacheScope = `user-${userId}-organisation-${organisationId}`;
+};
+
+const clearCloudPreviewCacheScope = async (scope: string) => {
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) {
+    return;
+  }
+  await FileSystem.deleteAsync(`${cacheDirectory}exdox-receipt-previews/${scope}`, { idempotent: true });
+};
+
 const getCloudPreviewCachePath = (receiptId: number, fileName: string) => {
   const cacheDirectory = FileSystem.cacheDirectory;
   if (!cacheDirectory) {
@@ -448,7 +464,7 @@ const getCloudPreviewCachePath = (receiptId: number, fileName: string) => {
   }
 
   const extension = (fileName.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
-  return `${cacheDirectory}exdox-receipt-previews/${receiptId}.${extension}`;
+  return `${cacheDirectory}exdox-receipt-previews/${cloudPreviewCacheScope}/${receiptId}.${extension}`;
 };
 
 const getCachedCloudPreview = async ({ receiptId, fileName }: { receiptId: number; fileName: string }) => {
@@ -1187,7 +1203,11 @@ export default function App() {
         if (savedAuthSession) {
           setSessionToken(savedAuthSession.token);
           setAuthSession(savedAuthSession);
-          const savedState = await loadScopedStoredState(String(savedAuthSession.user.id));
+          setCloudPreviewCacheScope(savedAuthSession.user.id, savedAuthSession.user.organisationId);
+          const savedState = await loadScopedStoredState(
+            buildWorkspaceStateScope(savedAuthSession.user.id, savedAuthSession.user.organisationId),
+            String(savedAuthSession.user.id),
+          );
           if (savedState && mounted) {
             appStateRef.current = savedState;
             setAppState(savedState);
@@ -1405,7 +1425,11 @@ export default function App() {
   const activateSession = useEffectEvent(async (session: AuthSession) => {
     setSessionToken(session.token);
     await saveAuthSession(session);
-    const savedState = await loadScopedStoredState(String(session.user.id));
+    setCloudPreviewCacheScope(session.user.id, session.user.organisationId);
+    const savedState = await loadScopedStoredState(
+      buildWorkspaceStateScope(session.user.id, session.user.organisationId),
+      String(session.user.id),
+    );
     setAuthSession(session);
     const nextState = savedState ?? seedState;
     appStateRef.current = nextState;
@@ -1467,6 +1491,17 @@ export default function App() {
   });
 
   const handleSignOut = useEffectEvent(async () => {
+    const cachedWorkspaceScope = authSession
+      ? buildWorkspaceStateScope(authSession.user.id, authSession.user.organisationId)
+      : null;
+    const previewScope = cloudPreviewCacheScope;
+    if (cachedWorkspaceScope) {
+      await Promise.all([
+        clearScopedStoredState(cachedWorkspaceScope),
+        clearCloudPreviewCacheScope(previewScope),
+      ]).catch(() => undefined);
+    }
+    cloudPreviewCacheScope = 'signed-out';
     setSessionToken(null);
     setAuthSession(null);
     appStateRef.current = seedState;
@@ -1987,7 +2022,10 @@ export default function App() {
     const persistCurrentState = async () => {
       try {
         if (authSession) {
-          await saveStoredState(appState, String(authSession.user.id));
+          await saveStoredState(
+            appState,
+            buildWorkspaceStateScope(authSession.user.id, authSession.user.organisationId),
+          );
         }
       } catch {
         if (!cancelled) {
