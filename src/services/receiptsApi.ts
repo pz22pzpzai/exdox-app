@@ -290,7 +290,7 @@ export async function updateCloudReceipt(
   updates: Partial<
     Pick<
       ExpenseDocument,
-      'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
+      'workspaceContext' | 'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
     >
   >,
 ) {
@@ -315,7 +315,7 @@ export async function updateCloudReceipt(
       totalAmount: updates.amount,
       currency: updates.currency,
       taxRateApplied: updates.taxRateApplied,
-      status: updates.status,
+      status: updates.workspaceContext === 'sales' ? mapSalesStatusForApi(updates.status) : updates.status,
     }),
   });
 
@@ -354,7 +354,7 @@ export async function fetchCloudReceiptAssetUrl(receiptId: number) {
 }
 
 function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): ExpenseDocument {
-  const status = mapCloudReceiptStatus(receipt.status);
+  const status = mapCloudReceiptStatus(receipt.status, receipt.workspaceContext);
   return {
     id: `cloud-${receipt.id}`,
     type: receipt.documentType === 'invoice' ? 'invoice' : 'receipt',
@@ -420,12 +420,12 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
   };
 }
 
-function mapCloudReceiptStatus(status: string | null | undefined): ExpenseDocument['status'] {
+function mapCloudReceiptStatus(status: string | null | undefined, workspaceContext?: WorkspaceContext): ExpenseDocument['status'] {
   const normalized = (status ?? '').trim().toLowerCase();
   if (normalized === 'ready' || normalized === 'ready_to_submit' || normalized === 'reviewed') {
     return 'ready_to_submit';
   }
-  if (normalized === 'submitted') {
+  if (normalized === 'submitted' || (workspaceContext === 'sales' && normalized === 'published')) {
     return 'submitted';
   }
   if (normalized === 'payment processing' || normalized === 'payment_processing') {
@@ -435,4 +435,12 @@ function mapCloudReceiptStatus(status: string | null | undefined): ExpenseDocume
     return 'paid';
   }
   return 'awaiting_review';
+}
+
+function mapSalesStatusForApi(status: ExpenseDocument['status'] | undefined) {
+  if (status === 'ready_to_submit') return 'Ready';
+  if (status === 'submitted') return 'Published';
+  if (status === 'paid') return 'Paid';
+  if (status === 'awaiting_review') return 'Review';
+  return status;
 }

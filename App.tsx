@@ -656,6 +656,7 @@ const shouldPushLocalSupplierToCloud = (localDocument: ExpenseDocument, cloudDoc
   (!hasUsableSupplierName(cloudDocument.supplier) || isPlaceholderSupplierLabel(cloudDocument.supplier));
 
 const buildCloudReceiptSyncUpdates = (document: ExpenseDocument) => ({
+  workspaceContext: document.workspaceContext,
   supplier: hasUsableSupplierName(document.supplier) ? document.supplier : undefined,
   date: document.date,
   dueDate: document.dueDate,
@@ -1517,7 +1518,7 @@ export default function App() {
       updates: Partial<
         Pick<
           ExpenseDocument,
-          'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
+          'workspaceContext' | 'supplier' | 'date' | 'dueDate' | 'invoiceNumber' | 'category' | 'description' | 'customer' | 'paymentMethod' | 'netAmount' | 'vatAmount' | 'amount' | 'currency' | 'taxRateApplied' | 'status'
         >
       >,
     ) => {
@@ -1527,6 +1528,7 @@ export default function App() {
       }
 
       await updateCloudReceipt(document.cloudReceiptId, {
+        workspaceContext: document.workspaceContext,
         supplier: updates.supplier ?? document.supplier,
         date: updates.date ?? document.date,
         dueDate: updates.dueDate ?? document.dueDate,
@@ -3372,14 +3374,15 @@ export default function App() {
 
         <DocumentSheet
           document={selectedDocument}
+          isAdmin={Boolean(isAdmin)}
           ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
           vatTrackingEnabled={vatTrackingEnabled}
           onClose={() => setSelectedDocumentId(null)}
           onMarkReviewed={() => {
             if (selectedDocument) {
               void updateDocumentStatus(selectedDocument.id, 'ready_to_submit', {
-                title: 'Marked reviewed',
-                message: 'This receipt has been marked as reviewed.',
+                title: selectedDocument.workspaceContext === 'sales' ? 'Sales document approved' : 'Marked reviewed',
+                message: selectedDocument.workspaceContext === 'sales' ? 'This sales document is approved and ready to publish.' : 'This receipt has been marked as reviewed.',
               });
             }
           }}
@@ -3397,8 +3400,8 @@ export default function App() {
           onMarkSubmitted={() => {
             if (selectedDocument) {
               void updateDocumentStatus(selectedDocument.id, 'submitted', {
-                title: 'Marked submitted',
-                message: 'This receipt has been marked as submitted.',
+                title: selectedDocument.workspaceContext === 'sales' ? 'Sales document published' : 'Marked submitted',
+                message: selectedDocument.workspaceContext === 'sales' ? 'This sales document has been added to the published archive.' : 'This receipt has been marked as submitted.',
               });
             }
           }}
@@ -3762,6 +3765,11 @@ function SalesScreen({
   canDeleteDocument: (document: ExpenseDocument) => boolean;
   onAddDocument: () => void;
 }) {
+  const [view, setView] = useState<'inbox' | 'archive'>('inbox');
+  const visibleDocuments = documents.filter((document) => view === 'archive'
+    ? document.status === 'submitted' || document.status === 'paid'
+    : document.status !== 'submitted' && document.status !== 'paid');
+
   if (!documents.length) {
     return (
       <BlankPanel
@@ -3775,8 +3783,17 @@ function SalesScreen({
   }
 
   return (
-    <FlatList
-      data={documents}
+    <View>
+      <View style={styles.salesWorkflowTabs}>
+        <Pressable style={[styles.salesWorkflowTab, view === 'inbox' && styles.salesWorkflowTabActive]} onPress={() => setView('inbox')}>
+          <Text style={[styles.salesWorkflowTabText, view === 'inbox' && styles.salesWorkflowTabTextActive]}>Inbox</Text>
+        </Pressable>
+        <Pressable style={[styles.salesWorkflowTab, view === 'archive' && styles.salesWorkflowTabActive]} onPress={() => setView('archive')}>
+          <Text style={[styles.salesWorkflowTabText, view === 'archive' && styles.salesWorkflowTabTextActive]}>Published archive</Text>
+        </Pressable>
+      </View>
+      <FlatList
+      data={visibleDocuments}
       keyExtractor={(item) => item.id.toString()}
       scrollEnabled={false}
       renderItem={({ item }) => (
@@ -3787,7 +3804,9 @@ function SalesScreen({
           onLongPress={canDeleteDocument(item) ? () => onDeleteDocument(item) : undefined}
         />
       )}
+      ListEmptyComponent={<BlankPanel icon="archive-outline" title="No sales documents here" copy={view === 'archive' ? 'Published sales documents will be retained here.' : 'No sales documents need attention.'} />}
     />
+    </View>
   );
 }
 
@@ -5499,6 +5518,7 @@ function CaptureReviewScreen({
 
 function DocumentSheet({
   document,
+  isAdmin,
   ownerName,
   vatTrackingEnabled,
   onClose,
@@ -5510,6 +5530,7 @@ function DocumentSheet({
   canDelete,
 }: {
   document: ExpenseDocument | null;
+  isAdmin: boolean;
   ownerName: string;
   vatTrackingEnabled: boolean;
   onClose: () => void;
@@ -5933,17 +5954,17 @@ function DocumentSheet({
             </Pressable>
           </View>
               <View style={styles.documentSheetActions}>
-            <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkReviewed}>
-              <Text style={styles.sheetActionPrimaryText}>Mark reviewed</Text>
-            </Pressable>
+            {document.workspaceContext !== 'sales' || isAdmin ? <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkReviewed}>
+              <Text style={styles.sheetActionPrimaryText}>{document.workspaceContext === 'sales' ? 'Approve sales document' : 'Mark reviewed'}</Text>
+            </Pressable> : null}
             {document.workspaceContext === 'cost' && document.paymentMethod === 'cash_personal' && !document.paymentMethodReviewRequired ? (
               <Pressable style={styles.sheetActionButton} onPress={onAddToClaim}>
                 <Text style={styles.sheetActionText}>Add to claim</Text>
               </Pressable>
             ) : null}
-            <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkSubmitted}>
-              <Text style={styles.sheetActionPrimaryText}>Mark submitted</Text>
-            </Pressable>
+            {document.workspaceContext !== 'sales' || isAdmin ? <Pressable style={[styles.sheetActionButton, styles.sheetActionPrimary]} onPress={onMarkSubmitted}>
+              <Text style={styles.sheetActionPrimaryText}>{document.workspaceContext === 'sales' ? 'Mark as published' : 'Mark submitted'}</Text>
+            </Pressable> : null}
             {canDelete ? (
               <Pressable style={[styles.sheetActionButton, styles.sheetActionDanger]} onPress={onDelete}>
                 <Text style={styles.sheetActionDangerText}>Delete</Text>
@@ -6877,6 +6898,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 9,
     alignItems: 'center',
+  },
+  salesWorkflowTabs: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  salesWorkflowTab: {
+    flex: 1,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+  },
+  salesWorkflowTabActive: {
+    backgroundColor: colors.royalBlueDark,
+    borderColor: colors.royalBlueDark,
+  },
+  salesWorkflowTabText: {
+    color: colors.royalBlueDark,
+    fontWeight: '700',
+  },
+  salesWorkflowTabTextActive: {
+    color: colors.white,
   },
   statusPillText: {
     fontSize: 14,
