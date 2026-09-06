@@ -43,6 +43,8 @@ import {
   deleteCloudReceipt,
   fetchCloudReceiptAssetUrl,
   fetchCloudReceipts,
+  fetchSalesWorkspace,
+  type MobileSalesWorkspace,
   fetchExpenseClaims,
   updateCloudReceipt,
 } from './src/services/receiptsApi';
@@ -3236,6 +3238,7 @@ export default function App() {
           {activeTab === 'sales' && (
             <SalesScreen
               documents={filteredDocuments}
+              isAdmin={authSession.user.role === 'Business_Admin'}
               onOpenDocument={setSelectedDocumentId}
               onDeleteDocument={(document) => confirmDeleteDocument(document)}
               canDeleteDocument={canDeleteDocument}
@@ -3754,33 +3757,30 @@ function CostsScreen({
 
 function SalesScreen({
   documents,
+  isAdmin,
   onOpenDocument,
   onDeleteDocument,
   canDeleteDocument,
   onAddDocument,
 }: {
   documents: ExpenseDocument[];
+  isAdmin: boolean;
   onOpenDocument: (id: string) => void;
   onDeleteDocument: (document: ExpenseDocument) => void;
   canDeleteDocument: (document: ExpenseDocument) => boolean;
   onAddDocument: () => void;
 }) {
-  const [view, setView] = useState<'inbox' | 'archive'>('inbox');
+  const [view, setView] = useState<'inbox' | 'archive' | 'created' | 'customers' | 'history'>('inbox');
+  const [workspace, setWorkspace] = useState<MobileSalesWorkspace | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetchSalesWorkspace().then((next) => { if (active) { setWorkspace(next); setWorkspaceError(null); } }).catch((error) => { if (active) setWorkspaceError(error instanceof Error ? error.message : 'Could not load Sales tools.'); });
+    return () => { active = false; };
+  }, []);
   const visibleDocuments = documents.filter((document) => view === 'archive'
     ? document.status === 'submitted' || document.status === 'paid'
     : document.status !== 'submitted' && document.status !== 'paid');
-
-  if (!documents.length) {
-    return (
-      <BlankPanel
-        icon="document-text-outline"
-        title="No sales documents yet"
-        copy="Upload an invoice or sales document to keep your records together."
-        actionLabel="Upload a sale"
-        onAction={onAddDocument}
-      />
-    );
-  }
 
   return (
     <View>
@@ -3792,6 +3792,16 @@ function SalesScreen({
           <Text style={[styles.salesWorkflowTabText, view === 'archive' && styles.salesWorkflowTabTextActive]}>Published archive</Text>
         </Pressable>
       </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.salesToolTabs}>
+        <Pressable style={[styles.salesToolTab, view === 'created' && styles.salesWorkflowTabActive]} onPress={() => setView('created')}><Text style={[styles.salesWorkflowTabText, view === 'created' && styles.salesWorkflowTabTextActive]}>Created documents</Text></Pressable>
+        <Pressable style={[styles.salesToolTab, view === 'customers' && styles.salesWorkflowTabActive]} onPress={() => setView('customers')}><Text style={[styles.salesWorkflowTabText, view === 'customers' && styles.salesWorkflowTabTextActive]}>Customers</Text></Pressable>
+        <Pressable style={[styles.salesToolTab, view === 'history' && styles.salesWorkflowTabActive]} onPress={() => setView('history')}><Text style={[styles.salesWorkflowTabText, view === 'history' && styles.salesWorkflowTabTextActive]}>Submission history</Text></Pressable>
+      </ScrollView>
+      {workspaceError ? <Text style={styles.salesWorkspaceError}>{workspaceError}</Text> : null}
+      {view === 'created' ? <View style={styles.salesToolsPanel}><Text style={styles.panelSectionTitle}>Invoices, quotes & credit notes</Text>{workspace?.documents.map((item) => <View key={item.id} style={styles.salesToolRow}><View style={styles.salesToolRowMain}><Text style={styles.panelListTitle}>{item.number} · {item.customerName}</Text><Text style={styles.panelListMeta}>{item.kind.replace('_', ' ')} · {item.status.replace('_', ' ')} · {item.issueDate}</Text></View><View><Text style={styles.salesToolAmount}>{item.currency} {item.total.toFixed(2)}</Text><Text style={styles.panelListMeta}>{item.currency} {item.outstandingAmount.toFixed(2)} due</Text></View></View>)}{!workspace?.documents.length ? <Text style={styles.panelMuted}>No native sales documents yet.</Text> : null}{isAdmin ? <Pressable style={styles.panelPrimaryButton} onPress={() => void Linking.openURL('https://exdox.co.uk/sales/manage')}><Text style={styles.panelPrimaryButtonText}>Create or manage sales documents</Text></Pressable> : null}</View> : null}
+      {view === 'customers' ? <View style={styles.salesToolsPanel}><Text style={styles.panelSectionTitle}>Customer directory</Text>{workspace?.customers.map((item) => <View key={item.id} style={styles.salesToolRow}><View style={styles.salesToolRowMain}><Text style={styles.panelListTitle}>{item.name}</Text><Text style={styles.panelListMeta}>{item.email || 'No email'} · {item.paymentTermsDays} day terms</Text></View></View>)}{!workspace?.customers.length ? <Text style={styles.panelMuted}>No customers saved yet.</Text> : null}{isAdmin ? <Pressable style={styles.panelPrimaryButton} onPress={() => void Linking.openURL('https://exdox.co.uk/sales/customers')}><Text style={styles.panelPrimaryButtonText}>Manage customers</Text></Pressable> : null}</View> : null}
+      {view === 'history' ? <View style={styles.salesToolsPanel}><Text style={styles.panelSectionTitle}>Private Sales submission email</Text><Text selectable style={styles.salesSubmissionAddress}>{workspace?.submissionAddress.address || 'Loading...'}</Text>{workspace?.submissions.slice(0, 20).map((item) => <View key={item.id} style={styles.salesToolRow}><View style={styles.salesToolRowMain}><Text style={styles.panelListTitle}>{item.sourceFilename}</Text><Text style={styles.panelListMeta}>{item.channel} · {item.status} · {item.receiptIds.length} record(s)</Text></View></View>)}{!workspace?.submissions.length ? <Text style={styles.panelMuted}>No Sales submissions recorded yet.</Text> : null}</View> : null}
+      {(view === 'inbox' || view === 'archive') ? (
       <FlatList
       data={visibleDocuments}
       keyExtractor={(item) => item.id.toString()}
@@ -3806,6 +3816,7 @@ function SalesScreen({
       )}
       ListEmptyComponent={<BlankPanel icon="archive-outline" title="No sales documents here" copy={view === 'archive' ? 'Published sales documents will be retained here.' : 'No sales documents need attention.'} />}
     />
+      ) : null}
     </View>
   );
 }
@@ -6924,6 +6935,51 @@ const styles = StyleSheet.create({
   },
   salesWorkflowTabTextActive: {
     color: colors.white,
+  },
+  salesToolTabs: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+  salesToolTab: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  salesToolsPanel: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    gap: 12,
+  },
+  salesToolRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  salesToolRowMain: {
+    flex: 1,
+  },
+  salesToolAmount: {
+    fontWeight: '700',
+    color: colors.nearBlack,
+    textAlign: 'right',
+  },
+  salesSubmissionAddress: {
+    color: colors.royalBlueDark,
+    fontWeight: '700',
+  },
+  salesWorkspaceError: {
+    color: '#B42318',
+    marginBottom: 12,
   },
   statusPillText: {
     fontSize: 14,

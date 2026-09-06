@@ -114,6 +114,21 @@ type ClaimApiResponse = {
   }>;
 };
 
+export type MobileSalesWorkspace = {
+  customers: Array<{ id: string; name: string; email: string | null; paymentTermsDays: number; active: boolean }>;
+  documents: Array<{ id: string; kind: 'invoice' | 'quote' | 'credit_note'; number: string; customerName: string; issueDate: string; currency: string; status: string; total: number; paidAmount: number; outstandingAmount: number }>;
+  submissions: Array<{ id: string; channel: string; sourceFilename: string; status: string; receiptIds: number[]; createdAt: string }>;
+  submissionAddress: { address: string };
+};
+
+export async function fetchSalesWorkspace(): Promise<MobileSalesWorkspace> {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/sales-workspace`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json() as MobileSalesWorkspace & { success?: boolean; message?: string };
+  if (!response.ok) throw new Error(data.message || 'Could not load the Sales workspace.');
+  return data;
+}
+
 export async function fetchCloudReceipts(workspaceContext?: WorkspaceContext, limit = 200, includeMileageCosts = false) {
   const token = requireSessionToken();
   const searchParams = new URLSearchParams();
