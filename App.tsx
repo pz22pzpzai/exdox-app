@@ -2510,35 +2510,7 @@ export default function App() {
   };
 
   const openGalleryPicker = async () => {
-    await recordDiagnostic('gallery', 'Requesting photo library permission');
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    await recordDiagnostic(
-      'gallery',
-      `Photo library permission result | granted=${permission.granted ? 'yes' : 'no'} | canAskAgain=${permission.canAskAgain ? 'yes' : 'no'}`,
-    );
-    if (!permission.granted) {
-      await recordDiagnostic('gallery', 'Photo library permission denied');
-      Alert.alert(
-        'Photos permission needed',
-        permission.canAskAgain
-          ? 'Allow photo access to import a receipt or invoice image.'
-          : 'Photo access is blocked for this app. Open settings and allow access to continue.',
-        permission.canAskAgain
-          ? [{ text: 'OK' }]
-          : [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Open settings',
-                onPress: () => {
-                  void Linking.openSettings();
-                },
-              },
-            ],
-      );
-      return;
-    }
-
-    await recordDiagnostic('gallery', 'Launching image library');
+    await recordDiagnostic('gallery', 'Launching system photo picker');
     awaitingGalleryResultRef.current = true;
     handledGalleryAssetRef.current = null;
     const pickerOptions: any = {
@@ -3493,8 +3465,6 @@ export default function App() {
           onChangeTotalMiles={setMileageMilesInput}
           onChangeMileageRate={setMileageRateInput}
           onAddProof={() => void (async () => {
-            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (!permission.granted) { Alert.alert('Photo permission needed', 'Allow photo access to attach journey proof.'); return; }
             const remainingSlots = 5 - mileageProofs.length;
             if (remainingSlots <= 0) { Alert.alert('Proof images added', 'You can attach up to five journey proof images to a mileage claim.'); return; }
             const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: remainingSlots, quality: 0.7 });
