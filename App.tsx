@@ -4717,14 +4717,22 @@ function DismissibleSheet({
 
   const dragResponder = useMemo(
     () => PanResponder.create({
+      onStartShouldSetPanResponder: () => !disabled,
+      onStartShouldSetPanResponderCapture: () => !disabled,
       onMoveShouldSetPanResponder: (_event, gesture) =>
         !disabled && gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+        !disabled && gesture.dy > 2 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderGrant: () => {
+        translateY.stopAnimation();
+      },
       onPanResponderMove: (_event, gesture) => {
         translateY.setValue(Math.max(0, gesture.dy));
       },
       onPanResponderRelease: (_event, gesture) => finishDrag(gesture.dy, gesture.vy),
       onPanResponderTerminate: () => resetPosition(),
       onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
     }),
     [disabled, translateY],
   );
@@ -4738,6 +4746,8 @@ function DismissibleSheet({
         accessibilityRole="button"
         accessibilityLabel="Drag down to close"
         accessibilityHint="Swipe this handle down to close the panel"
+        collapsable={false}
+        hitSlop={{ top: 10, bottom: 10 }}
       >
         <View style={styles.documentSheetHandle} />
       </View>
@@ -4769,7 +4779,7 @@ function MoreSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
         <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.captureActionSheet}>
+        <DismissibleSheet style={styles.captureActionSheet} onClose={onClose}>
             <Pressable style={styles.captureActionRow} onPress={onCreateMileageClaim}>
               <Ionicons name="car-outline" size={28} color={colors.nearBlack} />
               <Text style={styles.captureActionText}>Create mileage claim</Text>
@@ -4786,7 +4796,7 @@ function MoreSheet({
               <Ionicons name="image-outline" size={20} color={colors.royalBlueDark} />
               <Text style={styles.captureActionGhostText}>Choose from gallery</Text>
             </Pressable>
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -6196,7 +6206,7 @@ function CaptureModal({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.captureSheet}>
+        <DismissibleSheet style={styles.captureSheet} onClose={onClose} disabled={isSaving}>
           <View style={styles.sectionTabs}>
             {availableTypes.map((type) => (
               <Pressable
@@ -6223,7 +6233,7 @@ function CaptureModal({
             <Text style={styles.captureRowText}>Select PDF</Text>
           </Pressable>
           {isSaving ? <ActivityIndicator color={colors.royalBlue} style={styles.captureLoader} /> : null}
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -7959,11 +7969,9 @@ const styles = StyleSheet.create({
   },
   sheetDragHandleTouchArea: {
     alignSelf: 'stretch',
-    height: 32,
+    height: 48,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 2,
-    marginBottom: 4,
+    justifyContent: 'center',
   },
   documentSheetHandle: {
     alignSelf: 'center',
