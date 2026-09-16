@@ -970,7 +970,8 @@ const getPaymentMethodMatchLabel = (document: ExpenseDocument) =>
 const isReimbursementArchiveDocument = (document: ExpenseDocument) =>
   document.workspaceContext === 'cost' &&
   document.paymentMethod === 'cash_personal' &&
-  (document.status === 'payment_processing' || document.status === 'paid');
+  Boolean(document.reimbursementBatchId) &&
+  (document.status === 'ready_to_submit' || document.status === 'payment_processing' || document.status === 'paid');
 
 const buildInboundEmailAddress = (organisationName: string, organisationId: number) => {
   const slug = organisationName
@@ -5586,7 +5587,7 @@ function DocumentSheet({
   const documentStatusText = reimbursementArchived
     ? document.status === 'paid'
       ? 'This expense has been paid and is retained here for your records.'
-      : 'This expense is included in your employer\'s payment processing and is retained here for your records.'
+      : 'This expense is with your employer\'s payment team and payment is being processed.'
     : extractionStatusText;
   const documentReference = document.invoiceNumber?.trim() || document.fileName || 'Not available';
   const submittedByName = document.uploadedByEmail?.trim() || ownerName;

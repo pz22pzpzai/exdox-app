@@ -447,6 +447,9 @@ function mapCloudReceiptStatus(status: string | null | undefined, workspaceConte
   if (normalized === 'ready' || normalized === 'ready_to_submit' || normalized === 'reviewed') {
     return 'ready_to_submit';
   }
+  if (workspaceContext === 'cost' && normalized === 'published') {
+    return 'ready_to_submit';
+  }
   if (normalized === 'submitted' || (workspaceContext === 'sales' && normalized === 'published')) {
     return 'submitted';
   }
