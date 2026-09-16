@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   Linking,
   Modal,
   NativeModules,
+  PanResponder,
   Platform,
   Pressable,
   Share,
@@ -22,6 +23,8 @@ import {
   TextInput,
   useColorScheme,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -970,8 +973,9 @@ const getPaymentMethodMatchLabel = (document: ExpenseDocument) =>
 const isReimbursementArchiveDocument = (document: ExpenseDocument) =>
   document.workspaceContext === 'cost' &&
   document.paymentMethod === 'cash_personal' &&
-  Boolean(document.reimbursementBatchId) &&
-  (document.status === 'ready_to_submit' || document.status === 'payment_processing' || document.status === 'paid');
+  (document.status === 'paid' ||
+    document.status === 'payment_processing' ||
+    (document.status === 'ready_to_submit' && Boolean(document.reimbursementBatchId)));
 
 const buildInboundEmailAddress = (organisationName: string, organisationId: number) => {
   const slug = organisationName
@@ -4665,6 +4669,83 @@ function BottomTabItem({
   );
 }
 
+function DismissibleSheet({
+  children,
+  onClose,
+  style,
+  disabled = false,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  style: StyleProp<ViewStyle>;
+  disabled?: boolean;
+}) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const resetPosition = () => {
+    Animated.spring(translateY, {
+      toValue: 0,
+      stiffness: 320,
+      damping: 30,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const finishDrag = (distance: number, velocity: number) => {
+    if (disabled) {
+      resetPosition();
+      return;
+    }
+    if (distance > 90 || (distance > 24 && velocity > 0.8)) {
+      Animated.timing(translateY, {
+        toValue: Dimensions.get('window').height,
+        duration: 180,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          onCloseRef.current();
+        }
+        translateY.setValue(0);
+      });
+      return;
+    }
+    resetPosition();
+  };
+
+  const dragResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gesture) =>
+        !disabled && gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderMove: (_event, gesture) => {
+        translateY.setValue(Math.max(0, gesture.dy));
+      },
+      onPanResponderRelease: (_event, gesture) => finishDrag(gesture.dy, gesture.vy),
+      onPanResponderTerminate: () => resetPosition(),
+      onPanResponderTerminationRequest: () => false,
+    }),
+    [disabled, translateY],
+  );
+
+  return (
+    <Animated.View style={[style, { transform: [{ translateY }] }]}>
+      <View
+        style={styles.sheetDragHandleTouchArea}
+        {...dragResponder.panHandlers}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Drag down to close"
+        accessibilityHint="Swipe this handle down to close the panel"
+      >
+        <View style={styles.documentSheetHandle} />
+      </View>
+      {children}
+    </Animated.View>
+  );
+}
+
 function MoreSheet({
   target,
   onClose,
@@ -4799,8 +4880,7 @@ function NotificationsSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose}>
           <Text style={styles.panelTitle}>Processing alerts</Text>
           <ScrollView contentContainerStyle={styles.panelContent}>
             {!notifications.length ? (
@@ -4821,7 +4901,7 @@ function NotificationsSheet({
               ))
             )}
           </ScrollView>
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -4850,8 +4930,7 @@ function FilterSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose}>
           <Text style={styles.panelTitle}>Sort and filter</Text>
           <ScrollView
             style={styles.filterSheetScroll}
@@ -4874,7 +4953,7 @@ function FilterSheet({
               </Pressable>
             ))}
           </ScrollView>
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -4917,8 +4996,7 @@ function ClaimComposerSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose} disabled={submitting}>
           <Text style={styles.panelTitle}>Create claim</Text>
           <Text style={styles.claimComposerCopy}>Choose the personal purchases to reimburse, then send one claim to your employer for review.</Text>
           <ScrollView style={styles.claimComposerScroll} contentContainerStyle={styles.claimComposerContent} keyboardShouldPersistTaps="handled">
@@ -4958,7 +5036,7 @@ function ClaimComposerSheet({
           <Pressable style={[styles.panelPrimaryButton, (submitting || !selectedDocumentIds.length) && styles.panelPrimaryButtonDisabled]} onPress={onSubmit} disabled={submitting || !selectedDocumentIds.length}>
             <Text style={styles.panelPrimaryButtonText}>{submitting ? 'Creating claim…' : 'Create & request approval'}</Text>
           </Pressable>
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -5007,14 +5085,14 @@ function MileageClaimSheet({
         keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
       >
         <Pressable style={styles.sheetOverlay} onPress={onClose} disabled={submitting} />
-        <ScrollView
-          style={styles.panelSheet}
-          contentContainerStyle={styles.panelSheetScrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-        >
-          <View style={styles.documentSheetHandle} />
-          <Text style={styles.panelTitle}>Create mileage claim</Text>
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose} disabled={submitting}>
+          <ScrollView
+            style={styles.filterSheetScroll}
+            contentContainerStyle={styles.panelSheetScrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
+            <Text style={styles.panelTitle}>Create mileage claim</Text>
           <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} editable={!submitting} />
           <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} editable={!submitting} />
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
@@ -5027,7 +5105,8 @@ function MileageClaimSheet({
           <Pressable style={[styles.panelPrimaryButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onSubmit} disabled={submitting}>
             <Text style={styles.panelPrimaryButtonText}>{submitting ? 'Submitting mileage claim…' : 'Create mileage claim'}</Text>
           </Pressable>
-        </ScrollView>
+          </ScrollView>
+        </DismissibleSheet>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -5052,8 +5131,7 @@ function ThemeSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose}>
           <Text style={styles.panelTitle}>Theme</Text>
           {themeOptions.map((option) => (
             <Pressable key={option.value} style={styles.panelOptionRow} onPress={() => onSelect(option.value)}>
@@ -5061,7 +5139,7 @@ function ThemeSheet({
               {value === option.value ? <Ionicons name="checkmark" size={20} color={colors.nearBlack} /> : null}
             </Pressable>
           ))}
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -5114,8 +5192,7 @@ function SettingsPanelSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.panelSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.panelSheet} onClose={onClose}>
           {target === 'business_admin' ? (
             <>
               <Text style={styles.panelTitle}>Business admin</Text>
@@ -5231,7 +5308,7 @@ function SettingsPanelSheet({
               </ScrollView>
             </>
           ) : null}
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -5256,8 +5333,7 @@ function ErrorLogSheet({
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
-        <View style={styles.errorSheet}>
-          <View style={styles.documentSheetHandle} />
+        <DismissibleSheet style={styles.errorSheet} onClose={onClose}>
           <View style={styles.errorSheetHeader}>
             <Text style={styles.errorSheetTitle}>Error log</Text>
             <Pressable style={styles.errorSheetClear} onPress={() => void onClear()}>
@@ -5281,7 +5357,7 @@ function ErrorLogSheet({
               ))
             )}
           </ScrollView>
-        </View>
+        </DismissibleSheet>
       </View>
     </Modal>
   );
@@ -5463,8 +5539,7 @@ function CaptureReviewScreen({
       <Modal transparent animationType="slide" visible={categoryPickerVisible} onRequestClose={() => setCategoryPickerVisible(false)}>
         <View style={styles.sheetBackdrop}>
           <Pressable style={styles.sheetOverlay} onPress={() => setCategoryPickerVisible(false)} />
-          <View style={styles.categoryPickerSheet}>
-            <View style={styles.documentSheetHandle} />
+          <DismissibleSheet style={styles.categoryPickerSheet} onClose={() => setCategoryPickerVisible(false)}>
             <View style={styles.categoryPickerHeader}>
               <TextInput
                 value={categorySearchInput}
@@ -5491,7 +5566,7 @@ function CaptureReviewScreen({
                 </Pressable>
               ))}
             </ScrollView>
-          </View>
+          </DismissibleSheet>
         </View>
       </Modal>
     </>
@@ -5598,8 +5673,7 @@ function DocumentSheet({
       <Modal transparent animationType="slide" visible onRequestClose={onClose}>
         <View style={styles.sheetBackdrop}>
           <Pressable style={styles.sheetOverlay} onPress={onClose} />
-          <View style={styles.documentSheet}>
-            <View style={styles.documentSheetHandle} />
+          <DismissibleSheet style={styles.documentSheet} onClose={onClose}>
             <ScrollView
               style={styles.documentSheetScroll}
               contentContainerStyle={styles.documentSheetScrollContent}
@@ -5956,14 +6030,13 @@ function DocumentSheet({
             </>
           ) : null}
             </ScrollView>
-          </View>
+          </DismissibleSheet>
         </View>
       </Modal>
       <Modal transparent animationType="slide" visible={categoryPickerVisible} onRequestClose={() => setCategoryPickerVisible(false)}>
         <View style={styles.sheetBackdrop}>
           <Pressable style={styles.sheetOverlay} onPress={() => setCategoryPickerVisible(false)} />
-          <View style={styles.categoryPickerSheet}>
-            <View style={styles.documentSheetHandle} />
+          <DismissibleSheet style={styles.categoryPickerSheet} onClose={() => setCategoryPickerVisible(false)}>
             <View style={styles.categoryPickerHeader}>
               <TextInput
                 value={categorySearchInput}
@@ -5990,7 +6063,7 @@ function DocumentSheet({
                 </Pressable>
               ))}
             </ScrollView>
-          </View>
+          </DismissibleSheet>
         </View>
       </Modal>
       <Modal
@@ -7884,13 +7957,20 @@ const styles = StyleSheet.create({
   documentSheetScrollContent: {
     paddingBottom: 8,
   },
+  sheetDragHandleTouchArea: {
+    alignSelf: 'stretch',
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 2,
+    marginBottom: 4,
+  },
   documentSheetHandle: {
     alignSelf: 'center',
     width: 52,
     height: 5,
     borderRadius: 999,
     backgroundColor: colors.softBlueGrey,
-    marginBottom: 18,
   },
   documentSheetTitle: {
     fontSize: 24,
