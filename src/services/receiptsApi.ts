@@ -282,6 +282,13 @@ export async function deleteCloudReceipt(receiptId: number) {
     return;
   }
 
+  // Deletion is idempotent from the app's point of view. A cached purchase can
+  // outlive its server record, so "not found" means there is nothing left to
+  // delete remotely and the local tombstone can safely be applied.
+  if (response.status === 404) {
+    return;
+  }
+
   const data = (await response.json()) as { success?: boolean; message?: string };
   if (!response.ok || data.success === false) {
     throw new Error(typeof data.message === 'string' ? data.message : 'Could not delete this receipt.');
