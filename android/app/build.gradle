@@ -63,10 +63,6 @@ react {
     autolinkLibrariesWithApp()
 }
 
-/**
- * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
- */
-def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
 def releaseStoreFile = findProperty("EXDOX_UPLOAD_STORE_FILE") ?: System.getenv("EXDOX_UPLOAD_STORE_FILE")
 def releaseStorePassword = findProperty("EXDOX_UPLOAD_STORE_PASSWORD") ?: System.getenv("EXDOX_UPLOAD_STORE_PASSWORD")
 def releaseKeyAlias = findProperty("EXDOX_UPLOAD_KEY_ALIAS") ?: System.getenv("EXDOX_UPLOAD_KEY_ALIAS")
@@ -142,15 +138,19 @@ android {
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
             signingConfig signingConfigs.debug
+            // R8 skips obfuscation for debuggable variants; keep this phone-test build release-like.
+            debuggable false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
-            minifyEnabled enableMinifyInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            shrinkResources true
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }
