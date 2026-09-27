@@ -19,3 +19,9 @@ The app calls the same authenticated `POST /mileage/route` API as the website, r
 - A mobile source change requires a fresh verified phone-test APK on mounted Google Drive `G:\My Drive\Exdox Debug` and a source push to GitHub. APK build verification does not prove phone behaviour; the project owner tests on a device. Do not open emulators unless asked.
 - Preserve unrelated working-tree files and avoid committing local build settings or artifacts.
 - Never delete or move the keystore or signing details. Keep signing material in its existing protected location and never record its values here.
+
+## Icon font packaging correction (2026-09-27)
+
+- The first mileage phone-test APK was assembled by replacing only the JavaScript bundle in an older APK. Its Metro asset names did not match the older APK's Android resource names, so Ionicons appeared blank on the phone even though the route calculation worked. For future bundle-only patches, verify every referenced font/image resource matches the APK; otherwise build `assembleInstallableDebug` from the same staged source and assets.
+- A full local build in `C:\b\exdox-route-20260927` packaged the bundle and 20 assets together. The APK contains the Ionicons font resource referenced by the generated build, passes `zipalign` and `apksigner`, and has the same debug signing certificate as the preceding test APK. It is `uk.co.exdox.mobile.debug`, native version `1.0.28-debug` / code `29`. The existing `app.json` still says `1.0.27` / code `28`; native `android/app/build.gradle` supplies the APK version. No app behaviour source code was changed for this packaging correction.
+- Replacement phone-test APK: `G:\My Drive\Exdox Debug\Exdox-1.0.28-debug-icons-fixed-road-mileage-2026-09-27.apk`, SHA-256 `358C693CFC44225CE72643580A2F5A842327ED99367CDA6BBE1463B9604CE13C`. Drive readback matched. No device was connected, so on-phone icon rendering still requires user verification.
