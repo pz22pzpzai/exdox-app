@@ -12,15 +12,13 @@ function validPostcode(value: string): boolean {
 }
 
 export function MileageRoutePreview({
-  startPostcode,
-  endPostcode,
+  postcodes,
   disabled,
   onUseRoute,
 }: {
-  startPostcode: string;
-  endPostcode: string;
+  postcodes: string[];
   disabled: boolean;
-  onUseRoute: (miles: number, startPostcode: string, endPostcode: string) => void;
+  onUseRoute: (miles: number) => void;
 }) {
   const [result, setResult] = useState<MileageRouteResult | null>(null);
   const [calculatedKey, setCalculatedKey] = useState('');
@@ -28,8 +26,8 @@ export function MileageRoutePreview({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
-  const key = `${postcodeKey(startPostcode)}>${postcodeKey(endPostcode)}`;
-  const valid = validPostcode(startPostcode) && validPostcode(endPostcode) && postcodeKey(startPostcode) !== postcodeKey(endPostcode);
+  const key = postcodes.map(postcodeKey).join('>');
+  const valid = postcodes.length >= 2 && postcodes.every(validPostcode) && postcodes.every((postcode, index) => index === 0 || postcodeKey(postcode) !== postcodeKey(postcodes[index - 1]));
   const currentResult = calculatedKey === key ? result : null;
   const selectedRoute = currentResult?.routes[selectedIndex] ?? currentResult?.routes[0];
 
@@ -38,12 +36,12 @@ export function MileageRoutePreview({
     setBusy(true);
     setError(null);
     try {
-      const next = await calculateMileageRoute(startPostcode, endPostcode);
+      const next = await calculateMileageRoute(postcodes);
       if (id !== requestId.current) return;
       setResult(next);
-      setCalculatedKey(`${postcodeKey(next.startPostcode)}>${postcodeKey(next.endPostcode)}`);
+      setCalculatedKey([next.startPostcode, ...(next.stops ?? []), next.endPostcode].map(postcodeKey).join('>'));
       setSelectedIndex(0);
-      onUseRoute(next.routes[0].miles, next.startPostcode, next.endPostcode);
+      onUseRoute(next.routes[0].miles);
     } catch (routeError) {
       if (id !== requestId.current) return;
       setError(routeError instanceof Error ? routeError.message : 'Could not calculate the road distance. Enter miles manually or try again.');
@@ -70,7 +68,7 @@ export function MileageRoutePreview({
       <View style={styles.heading}>
         <View style={styles.headingText}>
           <Text style={styles.title}>Road-route mileage</Text>
-          <Text style={styles.copy}>Driving distance between your postcodes. Choose the route that matches your journey.</Text>
+          <Text style={styles.copy}>Driving distance through your postcodes in the order shown above.</Text>
         </View>
         <Pressable style={[styles.recalculate, (!valid || disabled || busy) && styles.disabled]} disabled={!valid || disabled || busy} onPress={() => void calculate()}>
           <Text style={styles.recalculateText}>{busy ? 'Calculating…' : 'Recalculate'}</Text>
@@ -94,7 +92,7 @@ export function MileageRoutePreview({
               style={[styles.routeOption, index === selectedIndex && styles.routeSelected]}
               onPress={() => {
                 setSelectedIndex(index);
-                onUseRoute(route.miles, currentResult.startPostcode, currentResult.endPostcode);
+                onUseRoute(route.miles);
               }}
               disabled={disabled}
               accessibilityRole="button"
@@ -107,7 +105,7 @@ export function MileageRoutePreview({
           <Pressable
             style={[styles.useRoute, disabled && styles.disabled]}
             disabled={disabled || !selectedRoute}
-            onPress={() => selectedRoute && onUseRoute(selectedRoute.miles, currentResult.startPostcode, currentResult.endPostcode)}
+            onPress={() => selectedRoute && onUseRoute(selectedRoute.miles)}
           >
             <Text style={styles.useRouteText}>Use route · {selectedRoute?.miles.toFixed(1)} miles</Text>
           </Pressable>

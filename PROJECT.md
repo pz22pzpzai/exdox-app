@@ -12,7 +12,7 @@ This repository is the Exdox React Native / Expo Android app. Source: `https://g
 
 ## Mileage routing
 
-The app calls the same authenticated `POST /mileage/route` API as the website, requesting a Mapbox static road-route preview. The API returns suggested and alternative driving distances and images, keeping the Mapbox access token on the server. The app automatically calculates when both UK postcodes are complete, lets the user choose **Use route**, and retains editable Total miles for the journey actually driven. This does not add turn-by-turn navigation, live tracking, or extra journey stops.
+The app calls the same authenticated `POST /mileage/route` API as the website, requesting a Mapbox static road-route preview. The API returns driving distance and a map image, keeping the Mapbox access token on the server. The mileage claim sheet holds an ordered list of postcodes: Start, any number of added Stops, and Destination. Users can drag a row handle or use its up/down buttons to reorder all postcodes; the first and last rows become the new endpoints. The app recalculates when all postcodes are complete, sends `stops` in order, and records the full journey in the claim description. The requested miles remain editable for the actual journey. Two-postcode journeys can still offer alternatives; multi-stop journeys use one route through the supplied order. No turn-by-turn navigation or live tracking is included.
 
 ## Delivery and caveats
 

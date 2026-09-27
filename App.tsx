@@ -35,6 +35,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MileageRoutePreview } from './src/components/MileageRoutePreview';
+import { MileageWaypointsEditor, type MileageWaypoint } from './src/components/MileageWaypointsEditor';
 
 import { seedState } from './src/data/seed';
 import { loginWithEmail } from './src/services/auth';
@@ -1176,8 +1177,10 @@ export default function App() {
   const [claimEndDateInput, setClaimEndDateInput] = useState(new Date().toISOString().slice(0, 10));
   const [selectedClaimDocumentIds, setSelectedClaimDocumentIds] = useState<string[]>([]);
   const [mileageVisible, setMileageVisible] = useState(false);
-  const [mileageStartInput, setMileageStartInput] = useState('');
-  const [mileageEndInput, setMileageEndInput] = useState('');
+  const [mileageWaypoints, setMileageWaypoints] = useState<MileageWaypoint[]>([{ id: 'start', postcode: '' }, { id: 'end', postcode: '' }]);
+  const mileageStartInput = mileageWaypoints[0].postcode;
+  const mileageEndInput = mileageWaypoints[mileageWaypoints.length - 1].postcode;
+  const mileageStops = mileageWaypoints.slice(1, -1).map((waypoint) => waypoint.postcode);
   const [mileageMilesInput, setMileageMilesInput] = useState('');
   const [mileageRateInput, setMileageRateInput] = useState('0.45');
   const [mileageProofs, setMileageProofs] = useState<{ uri: string; fileName?: string | null; mimeType?: string | null }[]>([]);
@@ -2978,13 +2981,13 @@ export default function App() {
   const submitMileageClaim = useEffectEvent(async () => {
     const miles = Number.parseFloat(mileageMilesInput);
     const rate = Number.parseFloat(mileageRateInput);
-    if (!mileageStartInput.trim() || !mileageEndInput.trim() || !Number.isFinite(miles) || miles <= 0 || !Number.isFinite(rate) || rate <= 0) {
-      Alert.alert('Mileage details needed', 'Add the start postcode, end postcode, total miles, and rate per mile.');
+    if (mileageWaypoints.some((waypoint) => !waypoint.postcode.trim()) || !Number.isFinite(miles) || miles <= 0 || !Number.isFinite(rate) || rate <= 0) {
+      Alert.alert('Mileage details needed', 'Add every journey postcode, total miles, and rate per mile.');
       return;
     }
 
     const mileageAmount = Number((miles * rate).toFixed(2));
-    const journey = `${mileageStartInput.trim()} to ${mileageEndInput.trim()}`;
+    const journey = [mileageStartInput, ...mileageStops, mileageEndInput].map((postcode) => postcode.trim().toUpperCase()).join(' → ');
     let createdClaimId: number | null = null;
     setMileageSubmission({ visible: true, progress: 8, status: 'Creating your mileage claim…' });
     try {
@@ -3017,8 +3020,7 @@ export default function App() {
       }
       setMileageSubmission({ visible: true, progress: 90, status: 'Adding your mileage cost to Purchases…' });
       setMileageVisible(false);
-      setMileageStartInput('');
-      setMileageEndInput('');
+      setMileageWaypoints([{ id: 'start', postcode: '' }, { id: 'end', postcode: '' }]);
       setMileageMilesInput('');
       setMileageRateInput(String(appState.organisationSettings?.mileageRate ?? 0.45));
       setMileageProofs([]);
@@ -3459,21 +3461,36 @@ export default function App() {
 
         <MileageClaimSheet
           visible={mileageVisible}
-          startPostcode={mileageStartInput}
-          endPostcode={mileageEndInput}
+          waypoints={mileageWaypoints}
           totalMiles={mileageMilesInput}
           mileageRate={mileageRateInput}
           proofNames={mileageProofs.map((proof, index) => proof.fileName || `Journey proof ${index + 1}`)}
           submitting={mileageSubmission.visible}
           onClose={() => !mileageSubmission.visible && setMileageVisible(false)}
-          onChangeStartPostcode={setMileageStartInput}
-          onChangeEndPostcode={setMileageEndInput}
-          onChangeTotalMiles={setMileageMilesInput}
-          onUseRoute={(miles, startPostcode, endPostcode) => {
-            setMileageStartInput(startPostcode);
-            setMileageEndInput(endPostcode);
-            setMileageMilesInput(miles.toFixed(1));
+          onChangeWaypoint={(id, postcode) => {
+            setMileageMilesInput('');
+            setMileageWaypoints((current) => current.map((waypoint) => waypoint.id === id ? { ...waypoint, postcode } : waypoint));
           }}
+          onAddStop={() => {
+            setMileageMilesInput('');
+            setMileageWaypoints((current) => [...current.slice(0, -1), { id: `stop-${Date.now()}-${Math.random()}`, postcode: '' }, current[current.length - 1]]);
+          }}
+          onMoveWaypoint={(from, to) => {
+            if (from === to) return;
+            setMileageMilesInput('');
+            setMileageWaypoints((current) => {
+            if (from < 0 || to < 0 || from >= current.length || to >= current.length || from === to) return current;
+            const next = [...current];
+            next.splice(to, 0, ...next.splice(from, 1));
+            return next;
+            });
+          }}
+          onRemoveStop={(id) => {
+            setMileageMilesInput('');
+            setMileageWaypoints((current) => current.length > 2 ? current.filter((waypoint, index) => index === 0 || index === current.length - 1 || waypoint.id !== id) : current);
+          }}
+          onChangeTotalMiles={setMileageMilesInput}
+          onUseRoute={(miles) => setMileageMilesInput(miles.toFixed(1))}
           onChangeMileageRate={setMileageRateInput}
           onAddProof={() => void (async () => {
             const remainingSlots = 5 - mileageProofs.length;
@@ -5060,15 +5077,16 @@ function ClaimComposerSheet({
 
 function MileageClaimSheet({
   visible,
-  startPostcode,
-  endPostcode,
+  waypoints,
   totalMiles,
   mileageRate,
   proofNames,
   submitting,
   onClose,
-  onChangeStartPostcode,
-  onChangeEndPostcode,
+  onChangeWaypoint,
+  onAddStop,
+  onMoveWaypoint,
+  onRemoveStop,
   onChangeTotalMiles,
   onUseRoute,
   onChangeMileageRate,
@@ -5076,17 +5094,18 @@ function MileageClaimSheet({
   onSubmit,
 }: {
   visible: boolean;
-  startPostcode: string;
-  endPostcode: string;
+  waypoints: MileageWaypoint[];
   totalMiles: string;
   mileageRate: string;
   proofNames: string[];
   submitting: boolean;
   onClose: () => void;
-  onChangeStartPostcode: (value: string) => void;
-  onChangeEndPostcode: (value: string) => void;
+  onChangeWaypoint: (id: string, postcode: string) => void;
+  onAddStop: () => void;
+  onMoveWaypoint: (from: number, to: number) => void;
+  onRemoveStop: (id: string) => void;
   onChangeTotalMiles: (value: string) => void;
-  onUseRoute: (miles: number, startPostcode: string, endPostcode: string) => void;
+  onUseRoute: (miles: number) => void;
   onChangeMileageRate: (value: string) => void;
   onAddProof: () => void;
   onSubmit: () => void;
@@ -5111,9 +5130,8 @@ function MileageClaimSheet({
             keyboardDismissMode="interactive"
           >
             <Text style={styles.panelTitle}>Create mileage claim</Text>
-          <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} editable={!submitting} />
-          <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} editable={!submitting} />
-          <MileageRoutePreview startPostcode={startPostcode} endPostcode={endPostcode} disabled={submitting} onUseRoute={onUseRoute} />
+          <MileageWaypointsEditor waypoints={waypoints} disabled={submitting} onChange={onChangeWaypoint} onAdd={onAddStop} onMove={onMoveWaypoint} onRemove={onRemoveStop} />
+          <MileageRoutePreview postcodes={waypoints.map((waypoint) => waypoint.postcode)} disabled={submitting} onUseRoute={onUseRoute} />
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
           <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
           <Pressable style={[styles.claimAttachButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onAddProof} disabled={submitting}>
