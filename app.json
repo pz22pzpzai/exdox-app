@@ -2,7 +2,7 @@
   "expo": {
     "name": "Exdox",
     "slug": "exdox",
-    "version": "1.0.27",
+    "version": "1.0.29",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "uk.co.exdox.mobile",
-      "versionCode": 28,
+      "versionCode": 30,
       "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA"
