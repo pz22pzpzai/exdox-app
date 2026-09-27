@@ -34,6 +34,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MileageRoutePreview } from './src/components/MileageRoutePreview';
 
 import { seedState } from './src/data/seed';
 import { loginWithEmail } from './src/services/auth';
@@ -3468,6 +3469,11 @@ export default function App() {
           onChangeStartPostcode={setMileageStartInput}
           onChangeEndPostcode={setMileageEndInput}
           onChangeTotalMiles={setMileageMilesInput}
+          onUseRoute={(miles, startPostcode, endPostcode) => {
+            setMileageStartInput(startPostcode);
+            setMileageEndInput(endPostcode);
+            setMileageMilesInput(miles.toFixed(1));
+          }}
           onChangeMileageRate={setMileageRateInput}
           onAddProof={() => void (async () => {
             const remainingSlots = 5 - mileageProofs.length;
@@ -5064,6 +5070,7 @@ function MileageClaimSheet({
   onChangeStartPostcode,
   onChangeEndPostcode,
   onChangeTotalMiles,
+  onUseRoute,
   onChangeMileageRate,
   onAddProof,
   onSubmit,
@@ -5079,6 +5086,7 @@ function MileageClaimSheet({
   onChangeStartPostcode: (value: string) => void;
   onChangeEndPostcode: (value: string) => void;
   onChangeTotalMiles: (value: string) => void;
+  onUseRoute: (miles: number, startPostcode: string, endPostcode: string) => void;
   onChangeMileageRate: (value: string) => void;
   onAddProof: () => void;
   onSubmit: () => void;
@@ -5105,6 +5113,7 @@ function MileageClaimSheet({
             <Text style={styles.panelTitle}>Create mileage claim</Text>
           <TextInput value={startPostcode} onChangeText={onChangeStartPostcode} placeholder="Start postcode" style={styles.panelInput} editable={!submitting} />
           <TextInput value={endPostcode} onChangeText={onChangeEndPostcode} placeholder="End postcode" style={styles.panelInput} editable={!submitting} />
+          <MileageRoutePreview startPostcode={startPostcode} endPostcode={endPostcode} disabled={submitting} onUseRoute={onUseRoute} />
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
           <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
           <Pressable style={[styles.claimAttachButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onAddProof} disabled={submitting}>
