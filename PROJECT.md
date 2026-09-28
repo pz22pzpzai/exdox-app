@@ -20,6 +20,11 @@ The app calls the same authenticated `POST /mileage/route` API as the website, r
 - Preserve unrelated working-tree files and avoid committing local build settings or artifacts.
 - Never delete or move the keystore or signing details. Keep signing material in its existing protected location and never record its values here.
 
+## Google Play feature graphic correction (2026-09-28)
+
+- `play-store-assets/feature-graphic-1024x500-fixed.png` is the 1024 × 500 replacement for a feature graphic whose headline clipped “Exdox” in Google Ads previews. The corrected image keeps the approved Exdox logo and fits the complete “Capture receipts with Exdox” headline inside the image. SHA-256: `6F598AB90645833068026A5503F21075BE227CE1FEFD03E2BFFC702A6EE1A02B`.
+- The corrected asset was saved to the en-GB default Play listing and submitted for review. Play Console showed **Changes in review** with quick checks running; this does not confirm public availability. Google Ads may continue showing the previous feature graphic until Google approves and refreshes the listing. This is a store graphic change, not an Android app build; no APK is needed. Never delete or move keystores or signing details.
+
 ## Icon font packaging correction (2026-09-27)
 
 - The first mileage phone-test APK was assembled by replacing only the JavaScript bundle in an older APK. Its Metro asset names did not match the older APK's Android resource names, so Ionicons appeared blank on the phone even though the route calculation worked. For future bundle-only patches, verify every referenced font/image resource matches the APK; otherwise build `assembleInstallableDebug` from the same staged source and assets.
