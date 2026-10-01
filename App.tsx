@@ -1328,7 +1328,6 @@ export default function App() {
       let costDocuments: ExpenseDocument[] = [];
       let salesDocuments: ExpenseDocument[] = [];
       let remoteClaims: Claim[] = [];
-      let remoteDecisions: ReceiptDecision[] = [];
       const fetchOptionalWorkspace = async (workspaceContext: WorkspaceContext) => {
         try {
           return await fetchCloudReceipts(workspaceContext);
@@ -1343,11 +1342,10 @@ export default function App() {
       };
 
       try {
-        [costDocuments, salesDocuments, remoteClaims, remoteDecisions] = await Promise.all([
+        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
           fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
-          fetchReceiptDecisions(),
         ]);
       } catch (error) {
         if (!isTransientNetworkError(error)) {
@@ -1355,11 +1353,10 @@ export default function App() {
         }
 
         await delay(1200);
-        [costDocuments, salesDocuments, remoteClaims, remoteDecisions] = await Promise.all([
+        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
           fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
-          fetchReceiptDecisions(),
         ]);
       }
 
@@ -1369,8 +1366,6 @@ export default function App() {
       if (cloudSyncAttemptRef.current !== attemptId) {
         return;
       }
-      remoteDecisions = remoteDecisions.filter((decision) => !dismissedDecisionIdsRef.current.has(decision.receiptId));
-
       // Always use the latest state. A sync can start while an upload or edit is
       // completing, and a render-time snapshot can otherwise overwrite that work.
       const currentDocuments = appStateRef.current.documents;
@@ -1378,16 +1373,21 @@ export default function App() {
       const pendingSalesSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, salesDocuments);
 
       const applyCloudWorkspace = (nextCostDocuments: ExpenseDocument[], nextSalesDocuments: ExpenseDocument[]) => {
-        const deletedByAdminIds = new Set(remoteDecisions.filter((decision) => decision.action === 'deleted').map((decision) => decision.receiptId));
-        const nextDocuments = [...nextCostDocuments, ...nextSalesDocuments].filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)).sort((left, right) =>
+        const nextDocuments = [...nextCostDocuments, ...nextSalesDocuments].sort((left, right) =>
           right.createdAt.localeCompare(left.createdAt),
         );
-        updateState((current) => ({
-          ...current,
-          documents: mergeWorkspaceDocuments(current.documents.filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)), nextDocuments, deletedCloudReceiptIdsRef.current),
-          receiptDecisions: remoteDecisions,
-          claims: remoteClaims,
-        }));
+        updateState((current) => {
+          const deletedByAdminIds = new Set(current.receiptDecisions.filter((decision) => decision.action === 'deleted').map((decision) => decision.receiptId));
+          return {
+            ...current,
+            documents: mergeWorkspaceDocuments(
+              current.documents.filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)),
+              nextDocuments.filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)),
+              deletedCloudReceiptIdsRef.current,
+            ),
+            claims: remoteClaims,
+          };
+        });
         return nextDocuments;
       };
 
@@ -2045,6 +2045,7 @@ export default function App() {
     const subscription = RNAppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') void refreshDecisions();
     });
+    void refreshDecisions();
     return () => { clearInterval(timer); subscription.remove(); };
   }, [authSession, recordError, syncCloudWorkspace]);
 
@@ -2274,29 +2275,13 @@ export default function App() {
     [appState.claims],
   );
 
-  const processingAlerts = useMemo(
-    () => [
-      ...appState.receiptDecisions.map((decision) => ({
+  const purchaseAlerts = useMemo(
+    () => appState.receiptDecisions.map((decision) => ({
         id: visibleDocuments.find((document) => document.cloudReceiptId === decision.receiptId)?.id ?? `decision-${decision.receiptId}`,
         title: decision.action === 'deleted' ? 'Expense deleted' : 'Expense rejected',
         message: `Expense ${decision.vendorName} has been ${decision.action === 'deleted' ? 'deleted' : 'rejected'} by an admin.`,
         createdAt: decision.decidedAt,
-      })),
-      ...visibleDocuments
-        .filter((document) => !document.adminDecision && (document.extractionStatus !== 'complete' || document.needsReview))
-        .slice(0, 20)
-        .map((document) => ({
-          id: document.id,
-          title: document.title,
-          message:
-            document.extractionStatus === 'pending'
-              ? 'Still processing'
-              : document.extractionStatus === 'failed'
-                ? 'Needs another look'
-                : 'Ready for review',
-          createdAt: document.updatedAt ?? document.createdAt,
-        })),
-    ].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      })).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [appState.receiptDecisions, visibleDocuments],
   );
 
@@ -3284,7 +3269,7 @@ export default function App() {
         <TopHeader
           title={tabTitle}
           subtitle={authSession.user.fullName || authSession.user.email}
-          notificationCount={processingAlerts.length}
+          notificationCount={purchaseAlerts.length}
           onOpenNotifications={() => setNotificationsVisible(true)}
           onRefresh={() => void handleRefreshFeed()}
           onOpenSettings={() => setActiveTab('more')}
@@ -3554,7 +3539,7 @@ export default function App() {
 
         <NotificationsSheet
           visible={notificationsVisible}
-          notifications={processingAlerts}
+          notifications={purchaseAlerts}
           onClose={() => setNotificationsVisible(false)}
           onOpenDocument={(documentId) => {
             setNotificationsVisible(false);
