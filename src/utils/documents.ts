@@ -53,6 +53,7 @@ export const buildDraftDocument = async ({
   lowResolution = false,
   workspaceContext,
   paymentMethod,
+  baseCurrency = 'GBP',
 }: {
   fileName: string;
   source: ExpenseDocument['source'];
@@ -61,6 +62,7 @@ export const buildDraftDocument = async ({
   lowResolution?: boolean;
   workspaceContext: WorkspaceContext;
   paymentMethod: PaymentMethod;
+  baseCurrency?: string;
 }): Promise<ExpenseDocument> => {
   const id = `doc-${Date.now()}`;
   const title = formatTitle(fileName);
@@ -74,6 +76,7 @@ export const buildDraftDocument = async ({
     source,
     workspaceContext,
     paymentMethod,
+    baseCurrency,
   });
 
   return {
@@ -122,6 +125,7 @@ const extractDraftSafely = async ({
   source,
   workspaceContext,
   paymentMethod,
+  baseCurrency = 'GBP',
 }: {
   type: DocumentKind;
   fileName: string;
@@ -130,6 +134,7 @@ const extractDraftSafely = async ({
   source: ExpenseDocument['source'];
   workspaceContext: WorkspaceContext;
   paymentMethod: PaymentMethod;
+  baseCurrency?: string;
 }): Promise<ExtractedDocumentDraft> => {
   if (source === 'camera') {
     return {
@@ -139,7 +144,7 @@ const extractDraftSafely = async ({
       vatAmount: 0,
       taxRateApplied: 'No VAT',
       taxAmount: 0,
-      currency: 'GBP',
+      currency: baseCurrency,
       category: type === 'invoice' ? 'Accounts Payable' : 'General',
       description: '',
       customer: '',
@@ -167,6 +172,7 @@ const extractDraftSafely = async ({
       workspaceContext,
       paymentMethod,
       skipProcessing: false,
+      baseCurrency,
     });
   } catch {
     return {
@@ -176,7 +182,7 @@ const extractDraftSafely = async ({
       vatAmount: 0,
       taxRateApplied: 'No VAT',
       taxAmount: 0,
-      currency: 'GBP',
+      currency: baseCurrency,
       category: type === 'invoice' ? 'Accounts Payable' : 'General',
       description: '',
       customer: '',

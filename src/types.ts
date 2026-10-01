@@ -8,6 +8,7 @@ export type PaymentMethodMatchState =
   | 'employee_review'
   | 'employee_exception';
 export type UkTaxRate = '20% Standard' | '5% Reduced' | '0% Zero' | 'Exempt' | 'No VAT';
+export type WorkspaceCountry = 'GB' | 'US' | 'AU' | 'CA' | 'AT' | 'BE' | 'BG' | 'HR' | 'CY' | 'EE' | 'FI' | 'FR' | 'DE' | 'GR' | 'IE' | 'IT' | 'LV' | 'LT' | 'LU' | 'MT' | 'NL' | 'PT' | 'SK' | 'SI' | 'ES' | 'AD' | 'MC' | 'SM' | 'VA' | 'XK' | 'ME';
 
 export type DocumentStatus =
   | 'awaiting_review'
@@ -38,7 +39,7 @@ export interface ExpenseDocument {
   amount: number;
   netAmount: number;
   vatAmount: number;
-  taxRateApplied: UkTaxRate;
+  taxRateApplied: string;
   taxAmount: number;
   foreignTaxAmount?: number | null;
   foreignTaxLabel?: string | null;
@@ -138,9 +139,10 @@ export interface UserSettings {
 export interface OrganisationSettings {
   organisationId: number;
   organisationName: string;
+  country: WorkspaceCountry;
   baseCurrency: string;
   isVatRegistered: boolean;
-  defaultTaxRate: UkTaxRate;
+  defaultTaxRate: string;
   mileageRate: number;
 }
 

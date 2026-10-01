@@ -86,6 +86,7 @@ export interface DocumentExtractionService {
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
     skipProcessing?: boolean;
+    baseCurrency?: string;
   }): Promise<ExtractedDocumentDraft>;
 }
 
@@ -99,6 +100,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
     workspaceContext,
     paymentMethod,
     skipProcessing,
+    baseCurrency = 'GBP',
     }: {
     type: DocumentKind;
     fileName: string;
@@ -108,9 +110,10 @@ class LocalMockExtractionService implements DocumentExtractionService {
     workspaceContext: WorkspaceContext;
     paymentMethod: PaymentMethod;
     skipProcessing?: boolean;
+    baseCurrency?: string;
     }): Promise<ExtractedDocumentDraft> {
     if (!uri) {
-      return buildFallbackDraft(type, fileName, 'No file URI was available for upload.');
+      return buildFallbackDraft(type, fileName, 'No file URI was available for upload.', baseCurrency);
     }
 
     try {
@@ -130,7 +133,6 @@ class LocalMockExtractionService implements DocumentExtractionService {
         },
         mimeType: prepared.mimeType,
         parameters: {
-          locale: 'en-GB',
           extract_line_items: 'true',
           document_type: type,
           workspace_context: workspaceContext,
@@ -154,7 +156,7 @@ class LocalMockExtractionService implements DocumentExtractionService {
 
       if (shouldTreatPayloadAsUnreadable(payload.document)) {
         return {
-          ...buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt'),
+          ...buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt', baseCurrency),
           cloudReceiptId: payload.receiptId,
           storageKey: payload.storage.key,
           storageBucket: payload.storage.bucket,
@@ -203,13 +205,13 @@ class LocalMockExtractionService implements DocumentExtractionService {
       console.error('document extraction failed', error);
       const message = error instanceof Error ? error.message : String(error);
       if (looksLikeDuplicateReceiptMessage(message)) {
-        return buildDuplicateDraft(type, fileName);
+        return buildDuplicateDraft(type, fileName, baseCurrency);
       }
       if (looksLikeUnreadableReceiptMessage(message)) {
-        return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt');
+        return buildFallbackDraft(type, fileName, 'Unable to read receipt, tap to enter manually or retry uploading receipt', baseCurrency);
       }
 
-      return buildPendingDraft(type, fileName);
+      return buildPendingDraft(type, fileName, baseCurrency);
     }
   }
 }
@@ -280,7 +282,7 @@ function shouldTreatPayloadAsUnreadable(document: ExpenseApiResponse['document']
   );
 }
 
-function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string): ExtractedDocumentDraft {
+function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string, baseCurrency = 'GBP'): ExtractedDocumentDraft {
   return {
     supplier: formatNameFallback(fileName, type),
     amount: 0,
@@ -288,7 +290,7 @@ function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string)
     vatAmount: 0,
     taxRateApplied: 'No VAT',
     taxAmount: 0,
-    currency: 'GBP',
+    currency: baseCurrency,
     category: type === 'invoice' ? 'Accounts Payable' : 'General',
     notes,
     dueDate:
@@ -305,7 +307,7 @@ function buildFallbackDraft(type: DocumentKind, fileName: string, notes: string)
   };
 }
 
-function buildPendingDraft(type: DocumentKind, fileName: string): ExtractedDocumentDraft {
+function buildPendingDraft(type: DocumentKind, fileName: string, baseCurrency = 'GBP'): ExtractedDocumentDraft {
   return {
     supplier: formatNameFallback(fileName, type),
     amount: 0,
@@ -313,7 +315,7 @@ function buildPendingDraft(type: DocumentKind, fileName: string): ExtractedDocum
     vatAmount: 0,
     taxRateApplied: 'No VAT',
     taxAmount: 0,
-    currency: 'GBP',
+    currency: baseCurrency,
     category: type === 'invoice' ? 'Accounts Payable' : 'General',
     notes: 'Receipt upload is still processing. Waiting for the finished result.',
     dueDate:
@@ -330,7 +332,7 @@ function buildPendingDraft(type: DocumentKind, fileName: string): ExtractedDocum
   };
 }
 
-function buildDuplicateDraft(type: DocumentKind, fileName: string): ExtractedDocumentDraft {
+function buildDuplicateDraft(type: DocumentKind, fileName: string, baseCurrency = 'GBP'): ExtractedDocumentDraft {
   return {
     supplier: formatNameFallback(fileName, type),
     amount: 0,
@@ -338,7 +340,7 @@ function buildDuplicateDraft(type: DocumentKind, fileName: string): ExtractedDoc
     vatAmount: 0,
     taxRateApplied: 'No VAT',
     taxAmount: 0,
-    currency: 'GBP',
+    currency: baseCurrency,
     category: type === 'invoice' ? 'Accounts Payable' : 'General',
     notes: 'Error: This is a duplicate',
     dueDate:

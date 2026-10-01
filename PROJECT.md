@@ -20,6 +20,13 @@ The app calls the same authenticated `POST /mileage/route` API as the website, r
 - Preserve unrelated working-tree files and avoid committing local build settings or artifacts.
 - Never delete or move the keystore or signing details. Keep signing material in its existing protected location and never record its values here.
 
+## Android workspace country (2026-10-01)
+
+- The app reads the organisation country saved at website signup from `GET /settings`. Legacy local settings default to GB. Business admins can change country in Android Settings; the app sends the country, matching base currency, local tax review default, and regional mileage default to the existing settings API. This changes the shared workspace for all users, not just one device. UK choices and postcode mileage remain the GB path.
+- `src/region.ts` mirrors the website's supported GB, US, AU, CA, and EUR-country list and tax review choices. These are review prompts, not automatic tax calculation or filing. `src/services/documentExtraction.ts` no longer forces `en-GB`; the existing API chooses the OCR locale from the organisation country. Unreadable/manual drafts use the workspace base currency.
+- Non-UK Android mileage uses manually entered locations and the workspace currency. The postcode route preview remains UK-only. The server's legacy mileage endpoint still names its location fields `startPostcode` and `endPostcode`; they accept the entered location text. The Android app has no native country-specific tax return or filing workflow.
+- Phone-test `assembleInstallableDebug` built successfully from local `C:\b\exdox-route-20260927` with bundled Node and SDK. TypeScript and `git diff --check` passed. The APK is package `uk.co.exdox.mobile.debug`, version `1.0.29-debug` / code `30`; AAPT, zipalign, apksigner, embedded-bundle comparison, and packaged font checks passed. Mounted Drive copy `G:\My Drive\Exdox Debug\Exdox-1.0.29-debug-workspace-countries-2026-10-01.apk` has SHA-256 `DDFA009A9C25F15F0C525563F46BFCCEAA01C1FDBCB5E51B60D982720231D7E0` and matched the local file on readback. No emulator or physical-device behaviour was tested. Never delete or move a keystore or signing details.
+
 ## Google Play feature graphic correction (2026-09-28)
 
 - `play-store-assets/feature-graphic-1024x500-fixed.png` is the 1024 × 500 replacement for a feature graphic whose headline clipped “Exdox” in Google Ads previews. The corrected image keeps the approved Exdox logo and fits the complete “Capture receipts with Exdox” headline inside the image. SHA-256: `6F598AB90645833068026A5503F21075BE227CE1FEFD03E2BFFC702A6EE1A02B`.

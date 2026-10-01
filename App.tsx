@@ -38,6 +38,7 @@ import { MileageRoutePreview } from './src/components/MileageRoutePreview';
 import { MileageWaypointsEditor, type MileageWaypoint } from './src/components/MileageWaypointsEditor';
 
 import { seedState } from './src/data/seed';
+import { countries, countryCurrency, countryDefaults, countryTaxChoices, countryTaxLabel } from './src/region';
 import { loginWithEmail } from './src/services/auth';
 import { documentExtractionService, ExtractedDocumentDraft } from './src/services/documentExtraction';
 import {
@@ -66,6 +67,7 @@ import {
   OrganisationSettings,
   PaymentMethod,
   UkTaxRate,
+  WorkspaceCountry,
   UserSettings,
   Vehicle,
   WorkspaceContext,
@@ -208,6 +210,7 @@ const buildManualDraftDocument = ({
   source,
   workspaceContext,
   paymentMethod,
+  baseCurrency = 'GBP',
 }: {
   fileName: string;
   type: DocumentKind;
@@ -217,6 +220,7 @@ const buildManualDraftDocument = ({
   source: ExpenseDocument['source'];
   workspaceContext: WorkspaceContext;
   paymentMethod: PaymentMethod;
+  baseCurrency?: string;
 }): ExpenseDocument => {
   const now = new Date().toISOString();
   const isInvoice = type === 'invoice';
@@ -230,7 +234,7 @@ const buildManualDraftDocument = ({
     supplier: isInvoice ? 'Supplier to review' : 'Merchant to review',
     amount: 0,
     taxAmount: 0,
-    currency: 'GBP',
+    currency: baseCurrency,
     status: 'awaiting_review',
     category: '',
     description: '',
@@ -1183,6 +1187,9 @@ export default function App() {
   const mileageStops = mileageWaypoints.slice(1, -1).map((waypoint) => waypoint.postcode);
   const [mileageMilesInput, setMileageMilesInput] = useState('');
   const [mileageRateInput, setMileageRateInput] = useState('0.45');
+  useEffect(() => {
+    if (appState.organisationSettings) setMileageRateInput(String(appState.organisationSettings.mileageRate));
+  }, [appState.organisationSettings?.mileageRate]);
   const [mileageProofs, setMileageProofs] = useState<{ uri: string; fileName?: string | null; mimeType?: string | null }[]>([]);
   const [themeVisible, setThemeVisible] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -1626,6 +1633,7 @@ export default function App() {
     );
     return buildManualDraftDocument({
       fileName: prepared.fileName,
+      baseCurrency: appStateRef.current.organisationSettings?.baseCurrency ?? 'GBP',
       type,
       uri: prepared.uri,
       previewImageUri: prepared.uri,
@@ -1685,6 +1693,7 @@ export default function App() {
       });
       const nextDocument = buildManualDraftDocument({
         fileName: combined.fileName,
+        baseCurrency: appStateRef.current.organisationSettings?.baseCurrency ?? 'GBP',
         type,
         uri: combined.uri,
         previewImageUri: combined.previewImageUri,
@@ -1823,6 +1832,7 @@ export default function App() {
         workspaceContext,
         paymentMethod,
         skipProcessing: false,
+        baseCurrency: appStateRef.current.organisationSettings?.baseCurrency ?? 'GBP',
       });
       let currentDocument = appStateRef.current.documents.find((document) => document.id === documentId);
       const extractedWithDuplicateHint = markDuplicateUploadDraft(
@@ -2492,6 +2502,7 @@ export default function App() {
         lowResolution,
         workspaceContext,
         paymentMethod,
+        baseCurrency: appState.organisationSettings?.baseCurrency ?? 'GBP',
       });
       updateState((current) => ({
         ...current,
@@ -2943,7 +2954,7 @@ export default function App() {
       const created = await createCloudClaim({
         name: claimTitleInput.trim() || `Expense Claim ${new Date().toLocaleDateString('en-GB')}`,
         description: `Date range: ${claimStartDateInput} to ${claimEndDateInput}`,
-        currency: 'GBP',
+        currency: appState.organisationSettings?.baseCurrency ?? 'GBP',
       });
       await Promise.all(
         selectedDocuments.map((document) =>
@@ -2981,20 +2992,22 @@ export default function App() {
   const submitMileageClaim = useEffectEvent(async () => {
     const miles = Number.parseFloat(mileageMilesInput);
     const rate = Number.parseFloat(mileageRateInput);
+    const country = appState.organisationSettings?.country ?? 'GB';
+    const currency = appState.organisationSettings?.baseCurrency ?? 'GBP';
     if (mileageWaypoints.some((waypoint) => !waypoint.postcode.trim()) || !Number.isFinite(miles) || miles <= 0 || !Number.isFinite(rate) || rate <= 0) {
-      Alert.alert('Mileage details needed', 'Add every journey postcode, total miles, and rate per mile.');
+      Alert.alert('Mileage details needed', country === 'GB' ? 'Add every journey postcode, total miles, and rate per mile.' : 'Add the start and end location, total miles, and rate per mile.');
       return;
     }
 
     const mileageAmount = Number((miles * rate).toFixed(2));
-    const journey = [mileageStartInput, ...mileageStops, mileageEndInput].map((postcode) => postcode.trim().toUpperCase()).join(' → ');
+    const journey = [mileageStartInput, ...mileageStops, mileageEndInput].map((location) => country === 'GB' ? location.trim().toUpperCase() : location.trim()).join(' → ');
     let createdClaimId: number | null = null;
     setMileageSubmission({ visible: true, progress: 8, status: 'Creating your mileage claim…' });
     try {
       const createdClaim = await createCloudClaim({
         name: `Mileage claim ${new Date().toLocaleDateString('en-GB')}`,
         description: journey,
-        currency: 'GBP',
+        currency,
         claimType: 'mileage',
         startPostcode: mileageStartInput.trim(),
         endPostcode: mileageEndInput.trim(),
@@ -3036,7 +3049,7 @@ export default function App() {
       setActiveTab('costs');
       Alert.alert(
         'Mileage claim submitted',
-        `${miles.toFixed(1)} miles from ${journey} (${formatCurrency(mileageAmount)}) has been sent to your employer for review and is now in Purchases.`,
+        `${miles.toFixed(1)} miles from ${journey} (${formatCurrency(mileageAmount, currency)}) has been sent to your employer for review and is now in Purchases.`,
       );
     } catch (error) {
       void recordError('submit mileage claim', error);
@@ -3259,6 +3272,19 @@ export default function App() {
               role={authSession.user.role}
               settings={appState.settings}
               organisationSettings={appState.organisationSettings}
+              onSaveCountry={async (country) => {
+                const current = appState.organisationSettings;
+                if (!current || country === current.country) return;
+                const defaults = countryDefaults(country);
+                const settings = await saveOrganisationSettings({
+                  country,
+                  ...defaults,
+                  isVatRegistered: current.isVatRegistered,
+                });
+                updateState((state) => ({ ...state, organisationSettings: settings }));
+                setMileageRateInput(String(settings.mileageRate));
+                Alert.alert('Workspace country saved', `Exdox now uses ${countries.find((item) => item.code === country)?.name} settings and ${settings.baseCurrency}. Check local tax on each document.`);
+              }}
               errorLogCount={errorLogs.length}
               onUpdateSetting={updateSettings}
               onOpenTheme={() => setThemeVisible(true)}
@@ -3272,9 +3298,9 @@ export default function App() {
                   Alert.alert('Mileage rate', 'Enter a positive mileage rate.');
                   return;
                 }
-                const settings = await saveOrganisationSettings({ baseCurrency: current.baseCurrency, isVatRegistered: current.isVatRegistered, defaultTaxRate: current.defaultTaxRate, mileageRate: rate });
+                const settings = await saveOrganisationSettings({ country: current.country, baseCurrency: current.baseCurrency, isVatRegistered: current.isVatRegistered, defaultTaxRate: current.defaultTaxRate, mileageRate: rate });
                 updateState((state) => ({ ...state, organisationSettings: settings }));
-                Alert.alert('Mileage rate saved', `${formatCurrency(settings.mileageRate)} per mile is now the approved default.`);
+                Alert.alert('Mileage rate saved', `${formatCurrency(settings.mileageRate, settings.baseCurrency)} per mile is now the approved default.`);
               }}
               onSignOut={() => void handleSignOut()}
             />
@@ -3357,6 +3383,8 @@ export default function App() {
 
         <DocumentSheet
           document={selectedDocument}
+          country={appState.organisationSettings?.country ?? 'GB'}
+          baseCurrency={appState.organisationSettings?.baseCurrency ?? 'GBP'}
           isAdmin={Boolean(isAdmin)}
           ownerName={authSession?.user.fullName ?? authSession?.user.email ?? 'Current user'}
           vatTrackingEnabled={vatTrackingEnabled}
@@ -3461,6 +3489,8 @@ export default function App() {
 
         <MileageClaimSheet
           visible={mileageVisible}
+          country={appState.organisationSettings?.country ?? 'GB'}
+          currency={appState.organisationSettings?.baseCurrency ?? 'GBP'}
           waypoints={mileageWaypoints}
           totalMiles={mileageMilesInput}
           mileageRate={mileageRateInput}
@@ -3523,6 +3553,8 @@ export default function App() {
           inboundEmailAddress={inboundEmailAddress}
           analyticsSummary={analyticsSummary}
           vatTrackingEnabled={vatTrackingEnabled}
+          baseCurrency={appState.organisationSettings?.baseCurrency ?? 'GBP'}
+          taxLabel={countryTaxLabel(appState.organisationSettings?.country ?? 'GB')}
           vehicles={appState.vehicles}
           vehicleNameInput={vehicleNameInput}
           vehicleRegistrationInput={vehicleRegistrationInput}
@@ -4331,6 +4363,7 @@ function SettingsScreen({
   role,
   settings,
   organisationSettings,
+  onSaveCountry,
   errorLogCount,
   onUpdateSetting,
   onOpenTheme,
@@ -4345,6 +4378,7 @@ function SettingsScreen({
   role: 'Business_Admin' | 'Standard_Employee';
   settings: UserSettings;
   organisationSettings: OrganisationSettings | null;
+  onSaveCountry: (country: WorkspaceCountry) => Promise<void>;
   errorLogCount: number;
   onUpdateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   onOpenTheme: () => void;
@@ -4355,6 +4389,8 @@ function SettingsScreen({
   onSignOut: () => void;
 }) {
   const [mileageRate, setMileageRate] = useState(String(organisationSettings?.mileageRate ?? 0.45));
+  const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+  const [savingCountry, setSavingCountry] = useState(false);
   useEffect(() => setMileageRate(String(organisationSettings?.mileageRate ?? 0.45)), [organisationSettings?.mileageRate]);
   return (
     <View>
@@ -4375,7 +4411,16 @@ function SettingsScreen({
         <>
           <SettingsButton icon="business-outline" label="Business admin access" onPress={() => onOpenPanel('business_admin')} />
           <View style={styles.settingsGroup}>
-            <Text style={styles.settingLabel}>Approved mileage rate per mile</Text>
+            <Text style={styles.settingLabel}>Workspace country</Text>
+            <Text style={styles.panelMuted}>Selected at signup. Changing this updates the workspace currency and tax review choices for everyone.</Text>
+            <SettingsButton
+              icon="globe-outline"
+              label={`${countries.find((item) => item.code === (organisationSettings?.country ?? 'GB'))?.name ?? 'United Kingdom'} · ${organisationSettings?.baseCurrency ?? 'GBP'}`}
+              onPress={() => setCountryPickerVisible(true)}
+            />
+          </View>
+          <View style={styles.settingsGroup}>
+            <Text style={styles.settingLabel}>Approved mileage rate per mile ({organisationSettings?.baseCurrency ?? 'GBP'})</Text>
             <TextInput value={mileageRate} onChangeText={setMileageRate} keyboardType="decimal-pad" style={styles.panelInput} placeholder="0.45" />
             <Pressable style={styles.panelPrimaryButton} onPress={() => void onSaveMileageRate(mileageRate)}>
               <Text style={styles.panelPrimaryButtonText}>Save mileage rate</Text>
@@ -4383,6 +4428,33 @@ function SettingsScreen({
           </View>
         </>
       ) : null}
+      <Modal transparent animationType="slide" visible={countryPickerVisible} onRequestClose={() => setCountryPickerVisible(false)}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetOverlay} onPress={() => setCountryPickerVisible(false)} />
+          <DismissibleSheet style={styles.panelSheet} onClose={() => setCountryPickerVisible(false)}>
+            <Text style={styles.panelTitle}>Workspace country</Text>
+            <ScrollView style={styles.categoryPickerList}>
+              {countries.map(({ code, name }) => (
+                <Pressable key={code} style={styles.panelOptionRow} disabled={savingCountry} onPress={() => {
+                  if (code === organisationSettings?.country) { setCountryPickerVisible(false); return; }
+                  Alert.alert('Change workspace country?', `Use ${name} and ${countryCurrency(code)} for this workspace? Tax rates still need review.`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Change', onPress: () => void (async () => {
+                      setSavingCountry(true);
+                      try { await onSaveCountry(code); setCountryPickerVisible(false); }
+                      catch (error) { Alert.alert('Could not save country', error instanceof Error ? error.message : 'Please try again.'); }
+                      finally { setSavingCountry(false); }
+                    })() },
+                  ]);
+                }}>
+                  <Text style={styles.panelOptionText}>{name} · {countryCurrency(code)}</Text>
+                  {code === organisationSettings?.country ? <Ionicons name="checkmark" size={20} color={colors.royalBlueDark} /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </DismissibleSheet>
+        </View>
+      </Modal>
       <SettingsButton icon="people-outline" label="Logins" onPress={() => onOpenPanel('logins')} />
       <SettingsButton icon="mail-outline" label="Extract by email" onPress={() => onOpenPanel('extract_email')} />
       <SettingsButton icon="car-outline" label="Vehicles" onPress={() => onOpenPanel('vehicles')} />
@@ -5077,6 +5149,8 @@ function ClaimComposerSheet({
 
 function MileageClaimSheet({
   visible,
+  country,
+  currency,
   waypoints,
   totalMiles,
   mileageRate,
@@ -5094,6 +5168,8 @@ function MileageClaimSheet({
   onSubmit,
 }: {
   visible: boolean;
+  country: WorkspaceCountry;
+  currency: string;
   waypoints: MileageWaypoint[];
   totalMiles: string;
   mileageRate: string;
@@ -5130,10 +5206,20 @@ function MileageClaimSheet({
             keyboardDismissMode="interactive"
           >
             <Text style={styles.panelTitle}>Create mileage claim</Text>
-          <MileageWaypointsEditor waypoints={waypoints} disabled={submitting} onChange={onChangeWaypoint} onAdd={onAddStop} onMove={onMoveWaypoint} onRemove={onRemoveStop} />
-          <MileageRoutePreview postcodes={waypoints.map((waypoint) => waypoint.postcode)} disabled={submitting} onUseRoute={onUseRoute} />
+          {country === 'GB' ? (
+            <>
+              <MileageWaypointsEditor waypoints={waypoints} disabled={submitting} onChange={onChangeWaypoint} onAdd={onAddStop} onMove={onMoveWaypoint} onRemove={onRemoveStop} />
+              <MileageRoutePreview postcodes={waypoints.map((waypoint) => waypoint.postcode)} disabled={submitting} onUseRoute={onUseRoute} />
+            </>
+          ) : (
+            <>
+              <Text style={styles.panelMuted}>Enter your journey locations and mileage manually. Your business admin reviews the rate.</Text>
+              <TextInput value={waypoints[0]?.postcode ?? ''} onChangeText={(value) => onChangeWaypoint('start', value)} placeholder="Start location" style={styles.panelInput} editable={!submitting} />
+              <TextInput value={waypoints[waypoints.length - 1]?.postcode ?? ''} onChangeText={(value) => onChangeWaypoint('end', value)} placeholder="End location" style={styles.panelInput} editable={!submitting} />
+            </>
+          )}
           <TextInput value={totalMiles} onChangeText={onChangeTotalMiles} placeholder="Total miles" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
-          <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder="Rate per mile" keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
+          <TextInput value={mileageRate} onChangeText={onChangeMileageRate} placeholder={`Rate per mile (${currency})`} keyboardType="decimal-pad" style={styles.panelInput} editable={!submitting} />
           <Pressable style={[styles.claimAttachButton, submitting && styles.panelPrimaryButtonDisabled]} onPress={onAddProof} disabled={submitting}>
             <Text style={styles.claimAttachButtonText}>{proofNames.length ? `Journey proof images (${proofNames.length}/5)` : 'Add journey proof images (up to 5)'}</Text>
           </Pressable>
@@ -5189,6 +5275,8 @@ function SettingsPanelSheet({
   inboundEmailAddress,
   analyticsSummary,
   vatTrackingEnabled,
+  baseCurrency,
+  taxLabel,
   vehicles,
   vehicleNameInput,
   vehicleRegistrationInput,
@@ -5208,6 +5296,8 @@ function SettingsPanelSheet({
   inboundEmailAddress: string;
   analyticsSummary: { total: number; vatTotal: number; reviewCount: number; submittedCount: number };
   vatTrackingEnabled: boolean;
+  baseCurrency: string;
+  taxLabel: string;
   vehicles: Vehicle[];
   vehicleNameInput: string;
   vehicleRegistrationInput: string;
@@ -5239,7 +5329,7 @@ function SettingsPanelSheet({
                   : 'This workspace is signed in without business admin permissions.'}
               </Text>
               <Text style={styles.panelMuted}>
-                Workspace VAT settings are managed by a business administrator on the Exdox website.
+                Workspace country and tax settings are managed by a business administrator in Settings or on the Exdox website.
               </Text>
             </>
           ) : null}
@@ -5274,12 +5364,12 @@ function SettingsPanelSheet({
               <Text style={styles.panelTitle}>Analytics</Text>
               <View style={styles.analyticsGrid}>
                 <View style={styles.analyticsCard}>
-                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.total)}</Text>
+                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.total, baseCurrency)}</Text>
                   <Text style={styles.analyticsLabel}>Visible total</Text>
                 </View>
                 <View style={styles.analyticsCard}>
-                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.vatTotal)}</Text>
-                  <Text style={styles.analyticsLabel}>{vatTrackingEnabled ? 'Visible VAT' : 'VAT hidden'}</Text>
+                  <Text style={styles.analyticsValue}>{formatCurrency(analyticsSummary.vatTotal, baseCurrency)}</Text>
+                  <Text style={styles.analyticsLabel}>{vatTrackingEnabled ? `Visible ${taxLabel}` : `${taxLabel} hidden`}</Text>
                 </View>
                 <View style={styles.analyticsCard}>
                   <Text style={styles.analyticsValue}>{analyticsSummary.reviewCount}</Text>
@@ -5612,6 +5702,8 @@ function CaptureReviewScreen({
 
 function DocumentSheet({
   document,
+  country,
+  baseCurrency,
   isAdmin,
   ownerName,
   vatTrackingEnabled,
@@ -5624,6 +5716,8 @@ function DocumentSheet({
   canDelete,
 }: {
   document: ExpenseDocument | null;
+  country: WorkspaceCountry;
+  baseCurrency: string;
   isAdmin: boolean;
   ownerName: string;
   vatTrackingEnabled: boolean;
@@ -5645,7 +5739,7 @@ function DocumentSheet({
   const [vatInput, setVatInput] = useState('0.00');
   const [selectedCurrency, setSelectedCurrency] = useState('GBP');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('cash_personal');
-  const [selectedTaxRate, setSelectedTaxRate] = useState<UkTaxRate>('No VAT');
+  const [selectedTaxRate, setSelectedTaxRate] = useState<string>('No VAT');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
   const [customerInput, setCustomerInput] = useState('');
@@ -5686,7 +5780,10 @@ function DocumentSheet({
     option.toLowerCase().includes(categorySearchInput.trim().toLowerCase()),
   );
   const effectiveTaxRate = vatTrackingEnabled ? selectedTaxRate : 'No VAT';
-  const foreignCurrencyDocument = document.currency.toUpperCase() !== 'GBP';
+  const foreignCurrencyDocument = document.currency.toUpperCase() !== baseCurrency.toUpperCase();
+  const ukForeignCurrencyDocument = country === 'GB' && foreignCurrencyDocument;
+  const taxLabel = countryTaxLabel(country);
+  const taxRateOptions = country === 'GB' ? TAX_RATE_OPTIONS : countryTaxChoices(country);
   const reimbursementArchived = isReimbursementArchiveDocument(document);
   const extractionStatusText =
     document.extractionStatus === 'pending'
@@ -5909,9 +6006,9 @@ function DocumentSheet({
             <View style={styles.taxEditorRow}>
               <TaxAmountField label="Total" value={totalInput} onChangeText={setTotalInput} />
               {vatTrackingEnabled ? <TaxAmountField label="Net" value={netInput} onChangeText={setNetInput} /> : null}
-              {vatTrackingEnabled && !foreignCurrencyDocument ? <TaxAmountField label="VAT" value={vatInput} onChangeText={setVatInput} /> : null}
+              {vatTrackingEnabled && !ukForeignCurrencyDocument ? <TaxAmountField label={taxLabel} value={vatInput} onChangeText={setVatInput} /> : null}
             </View>
-            {foreignCurrencyDocument ? (
+            {ukForeignCurrencyDocument ? (
               <View style={styles.reviewFieldRow}>
                 <Text style={styles.reviewFieldLabel}>Foreign tax</Text>
                 <Text style={styles.reviewFieldValue}>
@@ -5921,7 +6018,7 @@ function DocumentSheet({
                 </Text>
               </View>
             ) : null}
-            {foreignCurrencyDocument ? (
+            {ukForeignCurrencyDocument ? (
               <View style={styles.reviewFieldRow}>
                 <Text style={styles.reviewFieldLabel}>UK VAT treatment</Text>
                 <Text style={styles.reviewFieldValue}>Set by your business admin</Text>
@@ -5930,7 +6027,7 @@ function DocumentSheet({
             <View style={styles.taxDropdown}>
               <Text style={styles.taxDropdownLabel}>Currency</Text>
               <View style={styles.taxDropdownValueWrap}>
-                {['GBP', 'USD', 'EUR'].map((currency) => (
+                {['GBP', 'USD', 'EUR', 'AUD', 'CAD'].map((currency) => (
                   <Pressable
                     key={currency}
                     style={[styles.taxDropdownOption, currency === selectedCurrency && styles.taxDropdownOptionActive]}
@@ -5962,7 +6059,7 @@ function DocumentSheet({
                 </View>
               </View>
             ) : null}
-            {vatTrackingEnabled && !foreignCurrencyDocument ? (
+            {vatTrackingEnabled && !ukForeignCurrencyDocument ? (
               <>
                 <Pressable style={styles.taxDropdown} onPress={() => setTaxDropdownOpen((current) => !current)}>
                   <Text style={styles.taxDropdownLabel}>Tax rate</Text>
@@ -5977,7 +6074,7 @@ function DocumentSheet({
                 </Pressable>
                 {taxDropdownOpen ? (
                   <View style={styles.taxDropdownMenu}>
-                    {TAX_RATE_OPTIONS.map((option) => (
+                    {taxRateOptions.map((option) => (
                       <Pressable
                         key={option}
                         style={[styles.taxDropdownOption, option === selectedTaxRate && styles.taxDropdownOptionActive]}
@@ -6001,7 +6098,7 @@ function DocumentSheet({
               </>
             ) : (
               <View style={styles.reviewFieldRow}>
-                <Text style={styles.reviewFieldLabel}>VAT tracking</Text>
+                <Text style={styles.reviewFieldLabel}>{taxLabel} tracking</Text>
                 <Text style={styles.reviewFieldValue}>Gross total only</Text>
               </View>
             )}
