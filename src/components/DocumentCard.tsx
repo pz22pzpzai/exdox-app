@@ -5,6 +5,8 @@ import { colors, radius, spacing } from '../theme';
 
 const statusLabel = {
   awaiting_review: 'Awaiting review',
+  rejected: 'Rejected by admin',
+  deleted_by_admin: 'Deleted by admin',
   ready_to_submit: 'Ready to submit',
   submitted: 'Submitted',
   payment_processing: 'Payment processing',
@@ -13,6 +15,8 @@ const statusLabel = {
 
 const statusTone = {
   awaiting_review: '#F6E6C6',
+  rejected: '#F6E6C6',
+  deleted_by_admin: '#F6E6C6',
   ready_to_submit: '#D9EBDD',
   submitted: '#DDE8F2',
   payment_processing: '#DDE8F2',

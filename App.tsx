@@ -49,6 +49,7 @@ import {
   deleteCloudReceipt,
   fetchCloudReceiptAssetUrl,
   fetchCloudReceipts,
+  fetchReceiptDecisions,
   fetchSalesWorkspace,
   type MobileSalesWorkspace,
   fetchExpenseClaims,
@@ -66,6 +67,7 @@ import {
   ExpenseDocument,
   OrganisationSettings,
   PaymentMethod,
+  ReceiptDecision,
   UkTaxRate,
   WorkspaceCountry,
   UserSettings,
@@ -899,12 +901,44 @@ const mergeWorkspaceDocuments = (
   );
 };
 
+const decisionDocument = (decision: ReceiptDecision): ExpenseDocument => ({
+  id: `decision-${decision.receiptId}`,
+  type: decision.documentType,
+  workspaceContext: 'cost',
+  paymentMethod: 'cash_personal',
+  title: decision.vendorName,
+  supplier: decision.vendorName,
+  amount: decision.amount ?? 0,
+  netAmount: decision.amount ?? 0,
+  vatAmount: 0,
+  taxAmount: 0,
+  taxRateApplied: 'No VAT',
+  currency: decision.currency,
+  status: decision.action === 'deleted' ? 'deleted_by_admin' : 'rejected',
+  adminDecision: decision.action,
+  category: '',
+  date: decision.createdAt,
+  notes: decision.action === 'deleted' ? 'Deleted by admin' : 'Rejected by admin',
+  tags: ['admin-decision'],
+  fileName: decision.sourceFilename,
+  source: 'files',
+  cloudReceiptId: decision.receiptId,
+  uploadedByUserId: decision.uploadedByUserId,
+  extractionStatus: 'complete',
+  extractionSource: 'backend_proxy',
+  needsReview: false,
+  createdAt: decision.createdAt,
+  updatedAt: decision.decidedAt,
+});
+
 const galleryResultAssetName = (asset: { uri?: string | null; fileName?: string | null; assetId?: string | null }) =>
   asset.assetId ?? asset.uri ?? asset.fileName ?? `gallery-${Date.now()}`;
 
 const statusFilterOptions: Array<{ label: string; value: StatusFilter }> = [
   { label: 'All statuses', value: 'all' },
   { label: 'To review', value: 'awaiting_review' },
+  { label: 'Rejected by admin', value: 'rejected' },
+  { label: 'Deleted by admin', value: 'deleted_by_admin' },
   { label: 'Reviewed', value: 'ready_to_submit' },
   { label: 'Submitted', value: 'submitted' },
   { label: 'Payment processing', value: 'payment_processing' },
@@ -935,6 +969,10 @@ const formatCurrency = (amount: number, currency = 'GBP') =>
 const getStatusLabel = (status: ExpenseDocument['status']) =>
   status === 'awaiting_review'
     ? 'To review'
+    : status === 'rejected'
+      ? 'Rejected by admin'
+      : status === 'deleted_by_admin'
+        ? 'Deleted by admin'
     : status === 'ready_to_submit'
       ? 'Reviewed'
       : status === 'submitted'
@@ -1140,6 +1178,7 @@ export default function App() {
   const awaitingGalleryResultRef = useRef(false);
   const handledGalleryAssetRef = useRef<string | null>(null);
   const deletedCloudReceiptIdsRef = useRef<Set<number>>(new Set());
+  const dismissedDecisionIdsRef = useRef<Set<number>>(new Set());
   const [appState, setAppState] = useState<AppState>(seedState);
   const appStateRef = useRef<AppState>(seedState);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
@@ -1289,6 +1328,7 @@ export default function App() {
       let costDocuments: ExpenseDocument[] = [];
       let salesDocuments: ExpenseDocument[] = [];
       let remoteClaims: Claim[] = [];
+      let remoteDecisions: ReceiptDecision[] = [];
       const fetchOptionalWorkspace = async (workspaceContext: WorkspaceContext) => {
         try {
           return await fetchCloudReceipts(workspaceContext);
@@ -1303,10 +1343,11 @@ export default function App() {
       };
 
       try {
-        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
+        [costDocuments, salesDocuments, remoteClaims, remoteDecisions] = await Promise.all([
           fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
+          fetchReceiptDecisions(),
         ]);
       } catch (error) {
         if (!isTransientNetworkError(error)) {
@@ -1314,10 +1355,11 @@ export default function App() {
         }
 
         await delay(1200);
-        [costDocuments, salesDocuments, remoteClaims] = await Promise.all([
+        [costDocuments, salesDocuments, remoteClaims, remoteDecisions] = await Promise.all([
           fetchCloudReceipts('cost', 200, true),
           fetchOptionalWorkspace('sales'),
           fetchExpenseClaims(),
+          fetchReceiptDecisions(),
         ]);
       }
 
@@ -1327,6 +1369,7 @@ export default function App() {
       if (cloudSyncAttemptRef.current !== attemptId) {
         return;
       }
+      remoteDecisions = remoteDecisions.filter((decision) => !dismissedDecisionIdsRef.current.has(decision.receiptId));
 
       // Always use the latest state. A sync can start while an upload or edit is
       // completing, and a render-time snapshot can otherwise overwrite that work.
@@ -1335,12 +1378,14 @@ export default function App() {
       const pendingSalesSupplierUpdates = buildPendingCloudSupplierUpdates(currentDocuments, salesDocuments);
 
       const applyCloudWorkspace = (nextCostDocuments: ExpenseDocument[], nextSalesDocuments: ExpenseDocument[]) => {
-        const nextDocuments = [...nextCostDocuments, ...nextSalesDocuments].sort((left, right) =>
+        const deletedByAdminIds = new Set(remoteDecisions.filter((decision) => decision.action === 'deleted').map((decision) => decision.receiptId));
+        const nextDocuments = [...nextCostDocuments, ...nextSalesDocuments].filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)).sort((left, right) =>
           right.createdAt.localeCompare(left.createdAt),
         );
         updateState((current) => ({
           ...current,
-          documents: mergeWorkspaceDocuments(current.documents, nextDocuments, deletedCloudReceiptIdsRef.current),
+          documents: mergeWorkspaceDocuments(current.documents.filter((document) => !document.cloudReceiptId || !deletedByAdminIds.has(document.cloudReceiptId)), nextDocuments, deletedCloudReceiptIdsRef.current),
+          receiptDecisions: remoteDecisions,
           claims: remoteClaims,
         }));
         return nextDocuments;
@@ -1524,6 +1569,8 @@ export default function App() {
     setSessionToken(null);
     setAuthSession(null);
     appStateRef.current = seedState;
+    deletedCloudReceiptIdsRef.current.clear();
+    dismissedDecisionIdsRef.current.clear();
     setAppState(seedState);
     setSelectedDocumentId(null);
     setActiveTab('costs');
@@ -1976,6 +2023,32 @@ export default function App() {
   }, [appState.organisationSettings, authSession, recordError, syncCloudWorkspace]);
 
   useEffect(() => {
+    if (!authSession) return;
+    const refreshDecisions = async () => {
+      try {
+        const decisions = (await fetchReceiptDecisions()).filter((decision) => !dismissedDecisionIdsRef.current.has(decision.receiptId));
+        const restoredReceipt = appStateRef.current.receiptDecisions.some((previous) =>
+          !decisions.some((decision) => decision.receiptId === previous.receiptId),
+        );
+        const deletedIds = new Set(decisions.filter((decision) => decision.action === 'deleted').map((decision) => decision.receiptId));
+        updateState((current) => ({
+          ...current,
+          receiptDecisions: decisions,
+          documents: current.documents.filter((document) => !document.cloudReceiptId || !deletedIds.has(document.cloudReceiptId)),
+        }));
+        if (restoredReceipt) void syncCloudWorkspace(authSession);
+      } catch (error) {
+        void recordError('purchase notifications', error);
+      }
+    };
+    const timer = setInterval(() => { if (RNAppState.currentState === 'active') void refreshDecisions(); }, 60000);
+    const subscription = RNAppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void refreshDecisions();
+    });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, [authSession, recordError, syncCloudWorkspace]);
+
+  useEffect(() => {
     if (!pendingGalleryOpen || cameraVisible) {
       return;
     }
@@ -2072,9 +2145,22 @@ export default function App() {
     });
   };
 
+  const visibleDocuments = useMemo(() => {
+    const decisionsById = new Map(appState.receiptDecisions.map((decision) => [decision.receiptId, decision]));
+    const currentByReceiptId = new Map(appState.documents.filter((document) => document.cloudReceiptId).map((document) => [document.cloudReceiptId!, document]));
+    const unaffected = appState.documents.filter((document) => !document.cloudReceiptId || !decisionsById.has(document.cloudReceiptId));
+    const decided = appState.receiptDecisions.map((decision) => {
+      const original = currentByReceiptId.get(decision.receiptId);
+      return decision.action === 'rejected' && original
+        ? { ...original, status: 'rejected' as const, adminDecision: 'rejected' as const, needsReview: false, updatedAt: decision.decidedAt }
+        : decisionDocument(decision);
+    });
+    return [...unaffected, ...decided];
+  }, [appState.documents, appState.receiptDecisions]);
+
   const filteredDocuments = useMemo(() => {
     const term = deferredSearch.trim().toLowerCase();
-    return appState.documents
+    return visibleDocuments
       .filter((document) => {
         if (activeTab === 'costs' && (document.workspaceContext !== 'cost' || isReimbursementArchiveDocument(document))) {
           return false;
@@ -2109,7 +2195,7 @@ export default function App() {
         }
         return right.createdAt.localeCompare(left.createdAt);
       });
-  }, [activeTab, appState.documents, deferredSearch, sortMode, statusFilter]);
+  }, [activeTab, visibleDocuments, deferredSearch, sortMode, statusFilter]);
 
   const archiveDocuments = useMemo(() => {
     if (!archiveTarget) {
@@ -2126,8 +2212,8 @@ export default function App() {
   }, [appState.documents, archiveTarget]);
 
   const selectedDocument = useMemo(
-    () => appState.documents.find((document) => document.id === selectedDocumentId) ?? null,
-    [appState.documents, selectedDocumentId],
+    () => visibleDocuments.find((document) => document.id === selectedDocumentId) ?? null,
+    [visibleDocuments, selectedDocumentId],
   );
 
   // Report/archive rows may be older than the small background-preview batch.
@@ -2136,6 +2222,7 @@ export default function App() {
   useEffect(() => {
     if (
       !selectedDocument ||
+      selectedDocument.adminDecision ||
       !selectedDocument.cloudReceiptId ||
       !canHydrateDocumentPreview(selectedDocument) ||
       (canPreviewDocumentInline(selectedDocument) && !isRemotePreviewUri(getPrimaryDocumentPreviewUri(selectedDocument)))
@@ -2188,9 +2275,15 @@ export default function App() {
   );
 
   const processingAlerts = useMemo(
-    () =>
-      appState.documents
-        .filter((document) => document.extractionStatus !== 'complete' || document.needsReview)
+    () => [
+      ...appState.receiptDecisions.map((decision) => ({
+        id: visibleDocuments.find((document) => document.cloudReceiptId === decision.receiptId)?.id ?? `decision-${decision.receiptId}`,
+        title: decision.action === 'deleted' ? 'Expense deleted' : 'Expense rejected',
+        message: `Expense ${decision.vendorName} has been ${decision.action === 'deleted' ? 'deleted' : 'rejected'} by an admin.`,
+        createdAt: decision.decidedAt,
+      })),
+      ...visibleDocuments
+        .filter((document) => !document.adminDecision && (document.extractionStatus !== 'complete' || document.needsReview))
         .slice(0, 20)
         .map((document) => ({
           id: document.id,
@@ -2203,13 +2296,15 @@ export default function App() {
                 : 'Ready for review',
           createdAt: document.updatedAt ?? document.createdAt,
         })),
-    [appState.documents],
+    ].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [appState.receiptDecisions, visibleDocuments],
   );
 
   const analyticsSummary = useMemo(() => {
-    const total = filteredDocuments.reduce((sum, document) => sum + document.amount, 0);
+    const activeDocuments = filteredDocuments.filter((document) => !document.adminDecision);
+    const total = activeDocuments.reduce((sum, document) => sum + document.amount, 0);
     const vatTotal = vatTrackingEnabled
-      ? filteredDocuments.reduce((sum, document) => sum + document.vatAmount, 0)
+      ? activeDocuments.reduce((sum, document) => sum + document.vatAmount, 0)
       : 0;
     return {
       total,
@@ -2228,14 +2323,15 @@ export default function App() {
 
   const claimableDocuments = useMemo(
     () =>
-      appState.documents
+      visibleDocuments
         .filter((document) => document.workspaceContext === 'cost')
+        .filter((document) => !document.adminDecision && document.status !== 'rejected' && document.status !== 'deleted_by_admin')
         .filter((document) => document.paymentMethod === 'cash_personal')
         .filter((document) => !document.paymentMethodReviewRequired)
         .filter((document) => !document.claimId)
         .filter((document) => document.extractionStatus !== 'pending')
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
-    [appState.documents],
+    [visibleDocuments],
   );
 
   const tabTitle =
@@ -2766,11 +2862,15 @@ export default function App() {
       if (document.cloudReceiptId) {
         await deleteCloudReceipt(document.cloudReceiptId);
         deletedCloudReceiptIdsRef.current.add(document.cloudReceiptId);
+        if (document.adminDecision) dismissedDecisionIdsRef.current.add(document.cloudReceiptId);
       }
 
       updateState((current) => ({
         ...current,
         documents: current.documents.filter((item) => item.id !== document.id),
+        receiptDecisions: document.cloudReceiptId
+          ? current.receiptDecisions.filter((decision) => decision.receiptId !== document.cloudReceiptId)
+          : current.receiptDecisions,
       }));
       setSelectedDocumentId((current) => (current === document.id ? null : current));
       if (authSession) {
@@ -2784,9 +2884,13 @@ export default function App() {
 
   const confirmDeleteDocument = useEffectEvent((document: ExpenseDocument) => {
     Alert.alert(
-      document.mileageClaimId ? 'Delete mileage claim' : 'Delete document',
+      document.adminDecision ? 'Remove purchase notice' : document.mileageClaimId ? 'Delete mileage claim' : 'Delete document',
       document.mileageClaimId
         ? 'Delete this unreviewed mileage claim from both the app and dashboard? This cannot be undone.'
+        : document.adminDecision === 'deleted'
+          ? `Remove ${document.title} from your Purchases and notifications?`
+          : document.adminDecision === 'rejected'
+            ? `Delete the rejected ${document.title} purchase and remove its notification?`
         : `Delete ${document.title} from both the app and dashboard? This cannot be undone.`,
       [
         {
@@ -3454,6 +3558,7 @@ export default function App() {
           onClose={() => setNotificationsVisible(false)}
           onOpenDocument={(documentId) => {
             setNotificationsVisible(false);
+            if (visibleDocuments.some((document) => document.id === documentId && document.adminDecision)) setActiveTab('costs');
             setSelectedDocumentId(documentId);
           }}
         />
@@ -4611,7 +4716,9 @@ const DocumentRow = memo(function DocumentRow({
     document.extractionStatus !== 'pending' &&
     (document.extractionStatus === 'failed' || extractionLooksUnreadable(document));
   const extractionStatusText =
-    isDuplicateReceipt
+    document.adminDecision
+      ? getStatusLabel(document.status)
+      : isDuplicateReceipt
       ? duplicateReceiptStatusMessage
       : document.extractionStatus === 'pending'
         ? 'Reading receipt...'
@@ -4632,7 +4739,7 @@ const DocumentRow = memo(function DocumentRow({
         <DocumentThumbnail
           previewUri={previewUri}
           hasPreviewImage={hasPreviewImage}
-          cloudReceiptId={document.cloudReceiptId}
+          cloudReceiptId={document.adminDecision === 'deleted' ? undefined : document.cloudReceiptId}
           fileName={document.fileName}
         />
         <View style={styles.documentText}>
@@ -4658,6 +4765,7 @@ const DocumentRow = memo(function DocumentRow({
   previousProps.document.amount === nextProps.document.amount &&
   previousProps.document.date === nextProps.document.date &&
   previousProps.document.status === nextProps.document.status &&
+  previousProps.document.adminDecision === nextProps.document.adminDecision &&
   previousProps.document.extractionStatus === nextProps.document.extractionStatus &&
   previousProps.document.needsReview === nextProps.document.needsReview &&
   previousProps.document.notes === nextProps.document.notes &&
@@ -4672,7 +4780,7 @@ const DocumentRow = memo(function DocumentRow({
 function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; onPress: () => void }) {
   const label = getStatusLabel(status);
   const tone =
-    status === 'awaiting_review'
+    status === 'awaiting_review' || status === 'rejected' || status === 'deleted_by_admin'
       ? styles.pillReview
       : status === 'ready_to_submit'
         ? styles.pillReady
@@ -4685,8 +4793,8 @@ function StatusPill({ status, onPress }: { status: ExpenseDocument['status']; on
   return (
     <Pressable style={[styles.statusPill, tone]} onPress={onPress}>
       <Text
-        numberOfLines={1}
-        style={[styles.statusPillText, status === 'awaiting_review' && styles.statusPillTextReview]}
+        numberOfLines={status === 'rejected' || status === 'deleted_by_admin' ? 2 : 1}
+        style={[styles.statusPillText, (status === 'awaiting_review' || status === 'rejected' || status === 'deleted_by_admin') && styles.statusPillTextReview, (status === 'rejected' || status === 'deleted_by_admin') && { textAlign: 'center' }]}
       >
         {label}
       </Text>
@@ -4986,10 +5094,10 @@ function NotificationsSheet({
       <View style={styles.sheetBackdrop}>
         <Pressable style={styles.sheetOverlay} onPress={onClose} />
         <DismissibleSheet style={styles.panelSheet} onClose={onClose}>
-          <Text style={styles.panelTitle}>Processing alerts</Text>
+          <Text style={styles.panelTitle}>Notifications</Text>
           <ScrollView contentContainerStyle={styles.panelContent}>
             {!notifications.length ? (
-              <Text style={styles.panelMuted}>No document alerts right now.</Text>
+              <Text style={styles.panelMuted}>No notifications right now.</Text>
             ) : (
               notifications.map((notification) => (
                 <Pressable
@@ -5757,7 +5865,7 @@ function DocumentSheet({
     setTotalInput(formatMoneyInput(document.amount));
     setNetInput(formatMoneyInput(document.netAmount ?? document.amount));
     setVatInput(formatMoneyInput(document.vatAmount ?? document.taxAmount));
-    setSelectedCurrency(document.currency || 'GBP');
+    setSelectedCurrency(document.currency || baseCurrency);
     setSelectedPaymentMethod(document.paymentMethod || 'cash_personal');
     setSelectedTaxRate(document.taxRateApplied ?? 'No VAT');
     setSelectedCategory(document.category ?? '');
@@ -5771,6 +5879,31 @@ function DocumentSheet({
 
   if (!document) {
     return null;
+  }
+
+  if (document.adminDecision) {
+    return (
+      <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetOverlay} onPress={onClose} />
+          <DismissibleSheet style={styles.documentSheet} onClose={onClose}>
+            <Text style={styles.panelTitle}>{getStatusLabel(document.status)}</Text>
+            <Text style={styles.documentSheetTitle}>{document.supplier}</Text>
+            <Text style={styles.documentSheetAmount}>{formatCurrency(document.amount, document.currency)}</Text>
+            <Text style={styles.panelMuted}>
+              {document.adminDecision === 'deleted'
+                ? 'An admin deleted this unreviewed purchase. It stays here and in Notifications until you remove it.'
+                : 'An admin rejected this unreviewed purchase. It stays here and in Notifications until you delete it.'}
+            </Text>
+            {canDelete ? (
+              <Pressable style={[styles.panelPrimaryButton, styles.sheetActionDanger]} onPress={onDelete}>
+                <Text style={styles.sheetActionDangerText}>Delete from my Purchases</Text>
+              </Pressable>
+            ) : null}
+          </DismissibleSheet>
+        </View>
+      </Modal>
+    );
   }
 
   const previewUris = getDocumentPreviewUris(document);

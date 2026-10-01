@@ -1,4 +1,4 @@
-import { type Claim, type ExpenseDocument, type PaymentMethod, type WorkspaceContext } from '../types';
+import { type Claim, type ExpenseDocument, type PaymentMethod, type ReceiptDecision, type WorkspaceContext } from '../types';
 import { getApiBaseUrl } from './auth';
 import { requireSessionToken } from './session';
 
@@ -169,6 +169,18 @@ export async function fetchClaimableReceipts() {
   }
 
   return data.receipts.map(mapReceiptToDocument);
+}
+
+export async function fetchReceiptDecisions(): Promise<ReceiptDecision[]> {
+  const token = requireSessionToken();
+  const response = await fetch(`${getApiBaseUrl()}/receipts?decisions_only=true`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = (await response.json()) as { success: true; decisions: ReceiptDecision[] } | { success: false; message?: string };
+  if (!response.ok || data.success !== true) {
+    throw new Error('message' in data && data.message ? data.message : 'Could not load purchase notifications.');
+  }
+  return data.decisions ?? [];
 }
 
 export async function fetchExpenseClaims() {
@@ -444,6 +456,7 @@ function mapReceiptToDocument(receipt: ReceiptApiResponse['receipts'][number]): 
 
 function mapCloudReceiptStatus(status: string | null | undefined, workspaceContext?: WorkspaceContext): ExpenseDocument['status'] {
   const normalized = (status ?? '').trim().toLowerCase();
+  if (normalized === 'rejected') return 'rejected';
   if (normalized === 'ready' || normalized === 'ready_to_submit' || normalized === 'reviewed') {
     return 'ready_to_submit';
   }

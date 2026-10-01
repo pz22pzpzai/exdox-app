@@ -20,12 +20,22 @@ The app calls the same authenticated `POST /mileage/route` API as the website, r
 - Preserve unrelated working-tree files and avoid committing local build settings or artifacts.
 - Never delete or move the keystore or signing details. Keep signing material in its existing protected location and never record its values here.
 
+## Admin purchase decisions (2026-10-01)
+
+- The website admin can reject a Cost receipt in Review; deleting an unreviewed Cost receipt also records a decision. The server stores a vendor and amount snapshot scoped to the uploader, and Android fetches it at sign-in, on foreground, and every 60 seconds while active. These are in-app notices, not operating-system push alerts.
+- Purchases retains a rejected or admin-deleted row and read-only detail until the uploader taps Delete. Deleting a rejected row also soft-deletes its receipt; deleting an admin-deleted row dismisses its decision. A restored admin-deleted receipt returns on the next decision refresh and workspace sync. The iPhone app was outside this change.
+- Final phone-test `assembleInstallableDebug` built from local `C:\b\exdox-route-20260927`. TypeScript passed; AAPT, zipalign, apksigner, bundled Hermes asset matching, and 19 packaged TTF assets checked. Package `uk.co.exdox.mobile.debug`, version `1.0.29-debug` / code `30`. Mounted Drive copy and SHA-256 readback matched: `G:\My Drive\Exdox Debug\Exdox-1.0.29-debug-admin-purchase-notifications-2026-10-01.apk`, `DCEA728CA765A148645640ED17A8C1339C80A59402A9D2314E1828EF584C9FB9`. No emulator or phone launch was performed. Never delete or move signing material.
+
 ## Android workspace country (2026-10-01)
 
 - The app reads the organisation country saved at website signup from `GET /settings`. Legacy local settings default to GB. Business admins can change country in Android Settings; the app sends the country, matching base currency, local tax review default, and regional mileage default to the existing settings API. This changes the shared workspace for all users, not just one device. UK choices and postcode mileage remain the GB path.
 - `src/region.ts` mirrors the website's supported GB, US, AU, CA, and EUR-country list and tax review choices. These are review prompts, not automatic tax calculation or filing. `src/services/documentExtraction.ts` no longer forces `en-GB`; the existing API chooses the OCR locale from the organisation country. Unreadable/manual drafts use the workspace base currency.
 - Non-UK Android mileage uses manually entered locations and the workspace currency. The postcode route preview remains UK-only. The server's legacy mileage endpoint still names its location fields `startPostcode` and `endPostcode`; they accept the entered location text. The Android app has no native country-specific tax return or filing workflow.
 - Phone-test `assembleInstallableDebug` built successfully from local `C:\b\exdox-route-20260927` with bundled Node and SDK. TypeScript and `git diff --check` passed. The APK is package `uk.co.exdox.mobile.debug`, version `1.0.29-debug` / code `30`; AAPT, zipalign, apksigner, embedded-bundle comparison, and packaged font checks passed. Mounted Drive copy `G:\My Drive\Exdox Debug\Exdox-1.0.29-debug-workspace-countries-2026-10-01.apk` has SHA-256 `DDFA009A9C25F15F0C525563F46BFCCEAA01C1FDBCB5E51B60D982720231D7E0` and matched the local file on readback. No emulator or physical-device behaviour was tested. Never delete or move a keystore or signing details.
+
+## Admin purchase decisions in Android (2026-10-01)
+
+- `GET /receipts?decisions_only=true` supplies uploader-specific decisions for an unreviewed Cost that an admin deleted or rejected. Android syncs them on login and refresh, polls while active every minute, and refreshes on foreground. The notification panel shows a vendor-specific message; Purchases shows **Deleted by admin** or **Rejected by admin** until the uploader deletes the item. Deleting dismisses the decision on the server; for a rejected receipt it also moves the receipt to the existing recycle bin. Decision rows are read-only and cannot enter claims or financial totals. The API change must deploy before this Android build is used. No OS push notification service was added. Never delete or move the keystore or signing details.
 
 ## Google Play feature graphic correction (2026-09-28)
 

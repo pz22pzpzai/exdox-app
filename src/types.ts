@@ -12,6 +12,8 @@ export type WorkspaceCountry = 'GB' | 'US' | 'AU' | 'CA' | 'AT' | 'BE' | 'BG' | 
 
 export type DocumentStatus =
   | 'awaiting_review'
+  | 'rejected'
+  | 'deleted_by_admin'
   | 'ready_to_submit'
   | 'submitted'
   | 'payment_processing'
@@ -79,6 +81,7 @@ export interface ExpenseDocument {
   mileageClaimId?: number;
   uploadedByUserId?: number;
   uploadedByEmail?: string | null;
+  adminDecision?: 'deleted' | 'rejected';
   storageKey?: string;
   storageBucket?: string;
   extractionStatus: ExtractionStatus;
@@ -99,6 +102,20 @@ export interface ExpenseDocument {
   }>;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ReceiptDecision {
+  receiptId: number;
+  organisationId: number;
+  uploadedByUserId: number;
+  action: 'deleted' | 'rejected';
+  documentType: 'receipt' | 'invoice';
+  vendorName: string;
+  sourceFilename: string;
+  amount: number | null;
+  currency: string;
+  createdAt: string;
+  decidedAt: string;
 }
 
 export interface Claim {
@@ -148,6 +165,7 @@ export interface OrganisationSettings {
 
 export interface AppState {
   documents: ExpenseDocument[];
+  receiptDecisions: ReceiptDecision[];
   claims: Claim[];
   vehicles: Vehicle[];
   settings: UserSettings;
