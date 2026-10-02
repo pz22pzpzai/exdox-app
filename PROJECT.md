@@ -20,6 +20,13 @@ The app calls the same authenticated `POST /mileage/route` API as the website, r
 - Preserve unrelated working-tree files and avoid committing local build settings or artifacts.
 - Never delete or move the keystore or signing details. Keep signing material in its existing protected location and never record its values here.
 
+## Google Play release 1.0.30 (2026-10-02)
+
+- The owner confirmed the last phone-test APK works. Play Console showed 1.0.29/code 30 live at 100% rollout before this release. Source commit `a9d5210` increments both Expo and native Android metadata to 1.0.30/code 31; the app behaviour source is the tested country, tax review, and admin-decision notification work.
+- Built `bundleRelease` and `assembleRelease` from fresh local `C:\b\exdox-play-20261002` using the protected existing upload signing material. The APK reports `uk.co.exdox.mobile`, version 1.0.30/code 31, min SDK 24, target SDK 36, and arm64-v8a. APK zip alignment and signature passed; the AAB JAR signature passed and its upload certificate matched the previous Play AAB. Generated Hermes bundle SHA-256 `11DF9727B13BFF0511C73ECD55457C368435D0A55D12E25C25F54A1007EEAF55` matched the AAB and APK embedded bundles; both package 19 TTF assets. No emulator or physical phone launch was performed.
+- Mounted Drive copies passed SHA-256 readback: `G:\My Drive\Exdox Play Releases\Exdox-1.0.30-code31-2026-10-02.aab` (`ECB7D170ACBE88C9D760C5FE7B4F44AE5B4158B01E7946EAD20484270A943BE8`) and `G:\My Drive\Exdox Play Releases\Exdox-1.0.30-code31-signed-2026-10-02.apk` (`21EA6C0579489BB2C7BB5707CE64A1DCEED99510FEC9B6026868660066810ACA`). Never delete or move keystores or signing details.
+- Play accepted code 31 with ReTrace mapping and native symbols, no supported-device loss, 100% rollout in all previously targeted countries. The default en-GB full description now says “Now available in the UK, USA, Australia, Canada and EU” and highlights the web workspace's Xero connection near the top. Both changes were submitted together; Publishing overview showed **Changes in review** while quick checks were still running. Google approval and public availability were not confirmed. The owner checks the store after review.
+
 ## Admin purchase decisions (2026-10-01)
 
 - The website admin can reject a Cost receipt in Review; deleting an unreviewed Cost receipt also records a decision. The server stores a vendor and amount snapshot scoped to the uploader, and Android fetches it at sign-in, on foreground, and every 60 seconds while active. These are in-app notices, not operating-system push alerts.
