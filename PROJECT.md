@@ -1,5 +1,11 @@
 # Exdox Android app
 
+## Google sign-in and 14-day trial (2026-10-06)
+
+The Android login screen can sign in with Google through `@react-native-google-signin/google-signin`, using the public web OAuth client ID from the Exdox API. The Register tab asks Business or Sole trader, workspace country, business/trading name, and Terms acceptance before creating a Google account and the shared website/app 14-day plan-free trial. There is no card setup. The signed-in owner sees the trial countdown and a link to website Billing to choose a plan. Existing email/password accounts are not auto-linked to Google; a matching existing email is rejected. Native Google sign-in requires an Android OAuth client for `uk.co.exdox.mobile.debug` and the release package with the relevant signing SHA-1 fingerprints. It also requires the matching server source and its `GOOGLE_WEB_CLIENT_ID` configuration. Build from a short local folder and deliver a verified phone-test APK through mounted `G:`; the owner tests on a phone. Never delete or move the keystore or signing details.
+
+The 2026-10-06 phone-test APK was built from `C:\b\exdox-google-20261006` and saved to `G:\My Drive\Exdox Debug\Exdox-1.0.30-debug-google-signin-2026-10-06.apk`. Its SHA-256 is `ACA753538F67A474E95F155A0246B1DAADDA6DC7813C06A83C871F4DDB5447F7`; zip alignment, APK v2 signature, package name, and bundled Hermes code were checked. A native build and static checks do not confirm Google sign-in on a physical phone; the OAuth clients must be registered first.
+
 This repository is the Exdox React Native / Expo Android app. Source: `https://github.com/pz22pzpzai/exdox-app`. The website is `https://exdox.co.uk` (`https://github.com/pz22pzpzai/exdox`); the separate API is `https://hz2zkm6jkf.execute-api.eu-west-2.amazonaws.com/prod` (`https://github.com/pz22pzpzai/exdox-server`). The iPhone app is a separate project.
 
 ## Main files and commands

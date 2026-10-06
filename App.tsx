@@ -33,6 +33,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MileageRoutePreview } from './src/components/MileageRoutePreview';
 import { MileageWaypointsEditor, type MileageWaypoint } from './src/components/MileageWaypointsEditor';
@@ -40,6 +41,7 @@ import { MileageWaypointsEditor, type MileageWaypoint } from './src/components/M
 import { seedState } from './src/data/seed';
 import { countries, countryCurrency, countryDefaults, countryTaxChoices, countryTaxLabel } from './src/region';
 import { loginWithEmail } from './src/services/auth';
+import { authenticateWithGoogle, chooseGoogleAccount } from './src/services/googleAuth';
 import { documentExtractionService, ExtractedDocumentDraft } from './src/services/documentExtraction';
 import {
   attachCloudReceiptToClaim,
@@ -1188,6 +1190,12 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [googleAccountType, setGoogleAccountType] = useState<'owner' | 'sole_trader'>('owner');
+  const [googleCountry, setGoogleCountry] = useState<import('./src/types').WorkspaceCountry>('GB');
+  const [googleTermsAccepted, setGoogleTermsAccepted] = useState(false);
+  const [googleTwoFactor, setGoogleTwoFactor] = useState<{ idToken: string; emailEnabled: boolean; authenticatorEnabled: boolean; message: string } | null>(null);
+  const [googleTwoFactorCode, setGoogleTwoFactorCode] = useState('');
+  const [googleTwoFactorMethod, setGoogleTwoFactorMethod] = useState<'email' | 'authenticator' | 'recovery'>('email');
   const [activeTab, setActiveTab] = useState<MainTab>('costs');
   const [captureType, setCaptureType] = useState<DocumentKind>('receipt');
   const [captureModalVisible, setCaptureModalVisible] = useState(false);
@@ -1648,6 +1656,68 @@ export default function App() {
     } catch (error) {
       void recordError('auth', error);
       Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Could not sign in right now.');
+    } finally {
+      setAuthBusy(false);
+    }
+  });
+
+  const startGoogleAuth = useEffectEvent(async () => {
+    if (authMode === 'register') {
+      if (!googleTermsAccepted) {
+        Alert.alert('Terms required', 'Accept the Exdox Terms and Conditions to start the free trial.');
+        return;
+      }
+      if (googleAccountType === 'owner' && !authOrganisationName.trim()) {
+        Alert.alert('Business name required', 'Enter your business or organisation name.');
+        return;
+      }
+    }
+    setAuthBusy(true);
+    try {
+      const idToken = await chooseGoogleAccount();
+      if (!idToken) return;
+      const result = await authenticateWithGoogle({
+        idToken,
+        mode: authMode === 'register' ? 'register' : 'login',
+        ...(authMode === 'register' ? {
+          accountType: googleAccountType,
+          organisationName: authOrganisationName.trim() || undefined,
+          country: googleCountry,
+          termsAccepted: true,
+        } : {}),
+      });
+      if (result.kind === 'two_factor') {
+        setGoogleTwoFactor(result);
+        setGoogleTwoFactorMethod(result.emailEnabled ? 'email' : 'authenticator');
+        setGoogleTwoFactorCode('');
+        return;
+      }
+      setGoogleTwoFactor(null);
+      await activateSession(result.session);
+      void saveBiometricAuthSession(result.session);
+    } catch (error) {
+      void recordError('google auth', error);
+      Alert.alert('Google sign-in failed', error instanceof Error ? error.message : 'Could not sign in with Google.');
+    } finally {
+      setAuthBusy(false);
+    }
+  });
+
+  const verifyGoogleAuth = useEffectEvent(async () => {
+    if (!googleTwoFactor || !googleTwoFactorCode.trim()) return;
+    setAuthBusy(true);
+    try {
+      const result = await authenticateWithGoogle({
+        idToken: googleTwoFactor.idToken, mode: 'login',
+        twoFactorCode: googleTwoFactorCode.trim(), twoFactorMethod: googleTwoFactorMethod,
+      });
+      if (result.kind !== 'confirmed') throw new Error('Enter your Exdox verification code.');
+      setGoogleTwoFactor(null);
+      setGoogleTwoFactorCode('');
+      await activateSession(result.session);
+      void saveBiometricAuthSession(result.session);
+    } catch (error) {
+      Alert.alert('Verification failed', error instanceof Error ? error.message : 'Try again.');
     } finally {
       setAuthBusy(false);
     }
@@ -3242,16 +3312,27 @@ export default function App() {
         <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
         <AuthScreen
           mode={authMode}
-          fullName={authFullName}
           organisationName={authOrganisationName}
           email={authEmail}
           password={authPassword}
           busy={authBusy}
+          googleAccountType={googleAccountType}
+          googleCountry={googleCountry}
+          googleTermsAccepted={googleTermsAccepted}
+          googleTwoFactor={googleTwoFactor}
+          googleTwoFactorCode={googleTwoFactorCode}
+          googleTwoFactorMethod={googleTwoFactorMethod}
           onChangeMode={setAuthMode}
+          onChangeGoogleAccountType={setGoogleAccountType}
+          onChangeGoogleCountry={setGoogleCountry}
+          onChangeGoogleTermsAccepted={setGoogleTermsAccepted}
+          onChangeGoogleTwoFactorCode={setGoogleTwoFactorCode}
+          onChangeGoogleTwoFactorMethod={setGoogleTwoFactorMethod}
+          onGooglePress={() => void startGoogleAuth()}
+          onVerifyGoogle={() => void verifyGoogleAuth()}
           onOpenRegisterPricing={() => void openRegisterPricing()}
           onOpenReset={() => void openForgotPassword()}
           onBackToLogin={() => setAuthMode('login')}
-          onChangeFullName={setAuthFullName}
           onChangeOrganisationName={setAuthOrganisationName}
           onChangeEmail={setAuthEmail}
           onChangePassword={setAuthPassword}
@@ -3274,6 +3355,17 @@ export default function App() {
           onRefresh={() => void handleRefreshFeed()}
           onOpenSettings={() => setActiveTab('more')}
         />
+
+        {authSession.user.isOwner && authSession.user.trialEndsAt ? (
+          <View style={{ backgroundColor: '#eaf4ff', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ color: colors.royalBlueDark, flex: 1, fontWeight: '600' }}>
+              {Date.parse(authSession.user.trialEndsAt) > Date.now()
+                ? `${Math.ceil((Date.parse(authSession.user.trialEndsAt) - Date.now()) / 86_400_000)} day(s) left in your free trial. No card details needed.`
+                : 'Your free trial has ended. Choose a plan to continue.'}
+            </Text>
+            <Pressable onPress={() => { void Linking.openURL('https://exdox.co.uk/billing'); }}><Text style={{ color: colors.royalBlueDark, textDecorationLine: 'underline', fontWeight: '700' }}>Billing</Text></Pressable>
+          </View>
+        ) : null}
 
         {cloudSyncState !== 'idle' ? (
           <View
@@ -4300,16 +4392,27 @@ function FirstUseTutorial({ visible, step, onNext, onSkip }: { visible: boolean;
 
 function AuthScreen({
   mode,
-  fullName,
   organisationName,
   email,
   password,
   busy,
+  googleAccountType,
+  googleCountry,
+  googleTermsAccepted,
+  googleTwoFactor,
+  googleTwoFactorCode,
+  googleTwoFactorMethod,
   onChangeMode,
+  onChangeGoogleAccountType,
+  onChangeGoogleCountry,
+  onChangeGoogleTermsAccepted,
+  onChangeGoogleTwoFactorCode,
+  onChangeGoogleTwoFactorMethod,
+  onGooglePress,
+  onVerifyGoogle,
   onOpenRegisterPricing,
   onOpenReset,
   onBackToLogin,
-  onChangeFullName,
   onChangeOrganisationName,
   onChangeEmail,
   onChangePassword,
@@ -4317,22 +4420,34 @@ function AuthScreen({
   onFingerprintSignIn,
 }: {
   mode: 'login' | 'register' | 'reset';
-  fullName: string;
   organisationName: string;
   email: string;
   password: string;
   busy: boolean;
+  googleAccountType: 'owner' | 'sole_trader';
+  googleCountry: import('./src/types').WorkspaceCountry;
+  googleTermsAccepted: boolean;
+  googleTwoFactor: { emailEnabled: boolean; authenticatorEnabled: boolean; message: string } | null;
+  googleTwoFactorCode: string;
+  googleTwoFactorMethod: 'email' | 'authenticator' | 'recovery';
   onChangeMode: (mode: 'login' | 'register' | 'reset') => void;
+  onChangeGoogleAccountType: (value: 'owner' | 'sole_trader') => void;
+  onChangeGoogleCountry: (value: import('./src/types').WorkspaceCountry) => void;
+  onChangeGoogleTermsAccepted: (value: boolean) => void;
+  onChangeGoogleTwoFactorCode: (value: string) => void;
+  onChangeGoogleTwoFactorMethod: (value: 'email' | 'authenticator' | 'recovery') => void;
+  onGooglePress: () => void;
+  onVerifyGoogle: () => void;
   onOpenRegisterPricing: () => void;
   onOpenReset: () => void;
   onBackToLogin: () => void;
-  onChangeFullName: (value: string) => void;
   onChangeOrganisationName: (value: string) => void;
   onChangeEmail: (value: string) => void;
   onChangePassword: (value: string) => void;
   onSubmit: () => void;
   onFingerprintSignIn: () => void;
 }) {
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   return (
     <KeyboardAvoidingView
       style={styles.authScreen}
@@ -4353,7 +4468,7 @@ function AuthScreen({
             {mode === 'login'
               ? 'Sign in to your receipt workspace.'
               : mode === 'register'
-                ? 'Choose whether you are registering a business, sole trader, or employee account.'
+                ? 'Start a business or sole trader trial with Google.'
                 : 'Request help getting back into your Exdox workspace.'}
           </Text>
 
@@ -4367,7 +4482,7 @@ function AuthScreen({
               </Pressable>
               <Pressable
                 style={[styles.authTab, mode === 'register' && styles.authTabActive]}
-                onPress={onOpenRegisterPricing}
+                onPress={() => onChangeMode('register')}
               >
                 <Text style={[styles.authTabText, mode === 'register' && styles.authTabTextActive]}>Register</Text>
               </Pressable>
@@ -4378,24 +4493,36 @@ function AuthScreen({
             </Pressable>
           )}
 
-          {mode === 'register' ? (
-            <>
-              <TextInput
-                value={fullName}
-                onChangeText={onChangeFullName}
-                placeholder="Full name"
-                placeholderTextColor={colors.mutedText}
-                style={styles.authInput}
-              />
-              <TextInput
-                value={organisationName}
-                onChangeText={onChangeOrganisationName}
-                placeholder="Business name"
-                placeholderTextColor={colors.mutedText}
-                style={styles.authInput}
-              />
-            </>
-          ) : null}
+          {mode === 'register' ? <>
+            <Text style={styles.authSubtitle}>Choose your account type, then start a 14-day free trial. No card details needed.</Text>
+            <View style={styles.authTabs}>
+              <Pressable style={[styles.authTab, googleAccountType === 'owner' && styles.authTabActive]} onPress={() => onChangeGoogleAccountType('owner')}>
+                <Text style={[styles.authTabText, googleAccountType === 'owner' && styles.authTabTextActive]}>Business</Text>
+              </Pressable>
+              <Pressable style={[styles.authTab, googleAccountType === 'sole_trader' && styles.authTabActive]} onPress={() => onChangeGoogleAccountType('sole_trader')}>
+                <Text style={[styles.authTabText, googleAccountType === 'sole_trader' && styles.authTabTextActive]}>Sole trader</Text>
+              </Pressable>
+            </View>
+            <TextInput value={organisationName} onChangeText={onChangeOrganisationName} placeholder={googleAccountType === 'owner' ? 'Business name' : 'Trading name (optional)'} placeholderTextColor={colors.mutedText} style={styles.authInput} />
+            <Pressable style={styles.authInput} onPress={() => setCountryPickerOpen(true)} accessibilityRole="button">
+              <Text>{countries.find((item) => item.code === googleCountry)?.name ?? 'Choose country'}</Text>
+            </Pressable>
+            <Modal visible={countryPickerOpen} transparent animationType="slide" onRequestClose={() => setCountryPickerOpen(false)}>
+              <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'center', padding: 24 }}>
+                <ScrollView style={{ maxHeight: '75%', backgroundColor: '#fff', borderRadius: 16, padding: 14 }}>
+                  {countries.map((item) => <Pressable key={item.code} style={{ padding: 13 }} onPress={() => { onChangeGoogleCountry(item.code); setCountryPickerOpen(false); }}><Text>{item.name}</Text></Pressable>)}
+                </ScrollView>
+              </View>
+            </Modal>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Switch value={googleTermsAccepted} onValueChange={onChangeGoogleTermsAccepted} />
+              <Text style={{ flex: 1, color: colors.mutedText }}>I accept the Exdox Terms and Conditions and understand the trial ends after 14 days.</Text>
+            </View>
+            <Pressable style={styles.authSecondaryLink} onPress={() => { void Linking.openURL('https://exdox.co.uk/terms'); }}><Text style={styles.authSecondaryLinkText}>Read Terms and Conditions</Text></Pressable>
+            <GoogleSigninButton size={GoogleSigninButton.Size.Wide} color={GoogleSigninButton.Color.Light} onPress={onGooglePress} disabled={busy || !googleTermsAccepted} />
+            <Text style={styles.authSubtitle}>Choose a plan in website Billing only if you want to continue after the trial.</Text>
+            <Pressable style={styles.authSecondaryLink} onPress={onOpenRegisterPricing}><Text style={styles.authSecondaryLinkText}>Register with email or join as an employee on the website</Text></Pressable>
+          </> : <>
           <TextInput
             value={email}
             onChangeText={onChangeEmail}
@@ -4422,12 +4549,23 @@ function AuthScreen({
               <ActivityIndicator color={colors.white} />
             ) : (
               <Text style={styles.authButtonText}>
-                {mode === 'login' ? 'Sign in' : mode === 'register' ? 'Choose account type' : 'Request reset help'}
+                {mode === 'login' ? 'Sign in' : 'Request reset help'}
               </Text>
             )}
           </Pressable>
           {mode === 'login' ? (
             <>
+              <GoogleSigninButton size={GoogleSigninButton.Size.Wide} color={GoogleSigninButton.Color.Light} onPress={onGooglePress} disabled={busy} />
+              {googleTwoFactor ? <>
+                <Text style={styles.authSubtitle}>{googleTwoFactor.message}</Text>
+                <View style={styles.authTabs}>
+                  {googleTwoFactor.emailEnabled ? <Pressable style={[styles.authTab, googleTwoFactorMethod === 'email' && styles.authTabActive]} onPress={() => onChangeGoogleTwoFactorMethod('email')}><Text style={styles.authTabText}>Email</Text></Pressable> : null}
+                  {googleTwoFactor.authenticatorEnabled ? <Pressable style={[styles.authTab, googleTwoFactorMethod === 'authenticator' && styles.authTabActive]} onPress={() => onChangeGoogleTwoFactorMethod('authenticator')}><Text style={styles.authTabText}>Authenticator</Text></Pressable> : null}
+                  <Pressable style={[styles.authTab, googleTwoFactorMethod === 'recovery' && styles.authTabActive]} onPress={() => onChangeGoogleTwoFactorMethod('recovery')}><Text style={styles.authTabText}>Recovery</Text></Pressable>
+                </View>
+                <TextInput value={googleTwoFactorCode} onChangeText={onChangeGoogleTwoFactorCode} placeholder="Exdox verification code" placeholderTextColor={colors.mutedText} style={styles.authInput} />
+                <Pressable style={[styles.authButton, busy && styles.authButtonDisabled]} onPress={onVerifyGoogle} disabled={busy || !googleTwoFactorCode.trim()}><Text style={styles.authButtonText}>Verify Google sign-in</Text></Pressable>
+              </> : null}
               <Pressable
                 style={[styles.biometricButton, busy && styles.authButtonDisabled]}
                 onPress={onFingerprintSignIn}
@@ -4441,6 +4579,7 @@ function AuthScreen({
               </Pressable>
             </>
           ) : null}
+          </>}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

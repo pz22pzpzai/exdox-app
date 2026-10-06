@@ -188,6 +188,8 @@ export interface AuthUser {
   fullName: string | null;
   role: 'Business_Admin' | 'Standard_Employee';
   status: 'pending_invite' | 'active';
+  isOwner?: boolean;
+  trialEndsAt?: string | null;
 }
 
 export interface AuthSession {
