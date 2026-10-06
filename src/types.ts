@@ -187,9 +187,10 @@ export interface AuthUser {
   email: string;
   fullName: string | null;
   role: 'Business_Admin' | 'Standard_Employee';
-  status: 'pending_invite' | 'active';
+  status: 'pending_invite' | 'pending_confirmation' | 'active';
   isOwner?: boolean;
   trialEndsAt?: string | null;
+  emailConfirmationDueAt?: string | null;
 }
 
 export interface AuthSession {

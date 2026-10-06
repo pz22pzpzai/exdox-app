@@ -1,4 +1,4 @@
-import { type AuthSession } from '../types';
+import { type AuthSession, type WorkspaceCountry } from '../types';
 import { setSessionToken } from './session';
 
 const API_BASE_URL =
@@ -21,13 +21,45 @@ export async function loginWithEmail(input: { email: string; password: string })
 }
 
 export async function registerWithEmail(input: {
+  accountType: 'owner' | 'sole_trader' | 'employee';
+  country?: WorkspaceCountry;
   email: string;
+  confirmEmail: string;
   password: string;
+  confirmPassword: string;
   fullName?: string;
   organisationName?: string;
-  inviteToken?: string;
-}) {
-  return authenticate('/register', input);
+  termsAccepted?: true;
+  termsVersion?: string;
+}): Promise<{ kind: 'confirmed'; session: AuthSession } | { kind: 'pending_confirmation'; message: string; email: string }> {
+  const response = await fetch(`${API_BASE_URL}/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  const data = await response.json() as {
+    success: boolean; message?: string; token?: string; user?: AuthSession['user'];
+    requiresEmailConfirmation?: boolean;
+  };
+  if (!response.ok || !data.success) throw new Error(data.message || 'Registration failed.');
+  if (data.token && data.user) {
+    const session = { token: data.token, user: data.user };
+    setSessionToken(session.token);
+    return { kind: 'confirmed', session };
+  }
+  if (data.requiresEmailConfirmation) return {
+    kind: 'pending_confirmation',
+    message: data.message || 'Your trial has started. Check your email to confirm your account within three days.',
+    email: data.user?.email || input.email.trim(),
+  };
+  throw new Error('Registration completed without an Exdox account response.');
+}
+
+export async function resendConfirmationEmail(email: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/confirm-email/resend`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  });
+  const data = await response.json() as { success: boolean; message?: string };
+  if (!response.ok || !data.success) throw new Error(data.message || 'Could not resend the confirmation email.');
+  return data.message || 'Confirmation email sent.';
 }
 
 async function authenticate(path: string, payload: Record<string, unknown>) {
