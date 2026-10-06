@@ -33,7 +33,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MileageRoutePreview } from './src/components/MileageRoutePreview';
 import { MileageWaypointsEditor, type MileageWaypoint } from './src/components/MileageWaypointsEditor';
@@ -1672,6 +1671,7 @@ export default function App() {
         return;
       }
     }
+    setGoogleTwoFactor(null);
     setAuthBusy(true);
     try {
       const idToken = await chooseGoogleAccount();
@@ -4390,6 +4390,21 @@ function FirstUseTutorial({ visible, step, onNext, onSkip }: { visible: boolean;
   );
 }
 
+function GoogleAuthButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Sign in with Google"
+      style={[styles.googleAuthButton, disabled && styles.authButtonDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Image source={require('./assets/google-g.png')} resizeMode="contain" style={styles.googleAuthIcon} />
+      <Text style={styles.googleAuthButtonText}>Sign in with Google</Text>
+    </Pressable>
+  );
+}
+
 function AuthScreen({
   mode,
   organisationName,
@@ -4519,7 +4534,7 @@ function AuthScreen({
               <Text style={{ flex: 1, color: colors.mutedText }}>I accept the Exdox Terms and Conditions and understand the trial ends after 14 days.</Text>
             </View>
             <Pressable style={styles.authSecondaryLink} onPress={() => { void Linking.openURL('https://exdox.co.uk/terms'); }}><Text style={styles.authSecondaryLinkText}>Read Terms and Conditions</Text></Pressable>
-            <GoogleSigninButton size={GoogleSigninButton.Size.Wide} color={GoogleSigninButton.Color.Light} onPress={onGooglePress} disabled={busy || !googleTermsAccepted} />
+            <GoogleAuthButton onPress={onGooglePress} disabled={busy || !googleTermsAccepted} />
             <Text style={styles.authSubtitle}>Choose a plan in website Billing only if you want to continue after the trial.</Text>
             <Pressable style={styles.authSecondaryLink} onPress={onOpenRegisterPricing}><Text style={styles.authSecondaryLinkText}>Register with email or join as an employee on the website</Text></Pressable>
           </> : <>
@@ -4555,7 +4570,7 @@ function AuthScreen({
           </Pressable>
           {mode === 'login' ? (
             <>
-              <GoogleSigninButton size={GoogleSigninButton.Size.Wide} color={GoogleSigninButton.Color.Light} onPress={onGooglePress} disabled={busy} />
+              <GoogleAuthButton onPress={onGooglePress} disabled={busy} />
               {googleTwoFactor ? <>
                 <Text style={styles.authSubtitle}>{googleTwoFactor.message}</Text>
                 <View style={styles.authTabs}>
@@ -7115,6 +7130,28 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: colors.white,
+  },
+  googleAuthButton: {
+    minHeight: 54,
+    marginTop: 12,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#747775',
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  googleAuthIcon: {
+    width: 20,
+    height: 20,
+  },
+  googleAuthButtonText: {
+    color: '#1F1F1F',
+    fontSize: 15,
+    fontWeight: '600',
   },
   authSecondaryLink: {
     marginTop: 14,

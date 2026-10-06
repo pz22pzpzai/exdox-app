@@ -23,6 +23,8 @@ async function configureGoogle() {
 export async function chooseGoogleAccount(): Promise<string | null> {
   await configureGoogle();
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  // Android otherwise reuses the account from a rejected Exdox login attempt.
+  if (GoogleSignin.getCurrentUser()) await GoogleSignin.signOut();
   const response = await GoogleSignin.signIn();
   if (!isSuccessResponse(response)) return null;
   const idToken = response.data.idToken;
