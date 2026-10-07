@@ -52,6 +52,7 @@ function WaypointRow({ waypoint, index, count, disabled, onChange, onMove, onRem
           autoCapitalize="characters"
           autoCorrect={false}
           editable={!disabled}
+          textAlignVertical="center"
           style={styles.input}
           accessibilityLabel={`${label} postcode`}
         />
@@ -98,12 +99,12 @@ export function MileageWaypointsEditor({ waypoints, disabled, onChange, onAdd, o
 const styles = StyleSheet.create({
   container: { gap: 8 },
   help: { fontSize: 12, lineHeight: 17, color: '#53645f' },
-  row: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 5, padding: 5, borderRadius: 10, borderWidth: 1, borderColor: '#d5e4e1', backgroundColor: '#fff' },
+  row: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 5, padding: 5, borderRadius: 10, borderWidth: 1, borderColor: '#d5e4e1', backgroundColor: '#fff' },
   dragging: { zIndex: 2, elevation: 4, borderColor: '#0c716a' },
   dragHandle: { width: 30, height: 46, alignItems: 'center', justifyContent: 'center' },
-  inputGroup: { flex: 1, gap: 2 },
+  inputGroup: { flex: 1, minWidth: 0, gap: 2 },
   label: { fontSize: 11, fontWeight: '700', color: '#53645f' },
-  input: { height: 32, paddingHorizontal: 8, borderRadius: 6, backgroundColor: '#f6fbfa', color: '#152723', fontSize: 14 },
+  input: { minHeight: 40, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: '#f6fbfa', color: '#152723', fontSize: 14 },
   actions: { gap: 0 },
   action: { width: 27, height: 23, alignItems: 'center', justifyContent: 'center' },
   remove: { width: 24, height: 46, alignItems: 'center', justifyContent: 'center' },

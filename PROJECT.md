@@ -1,5 +1,11 @@
 # Exdox Android app
 
+## Mileage postcode field layout (2026-10-07)
+
+The Create mileage claim sheet's ordered postcode rows now give each input at least 40 dp of height, centre its text vertically on Android, and allow the input group to shrink on narrow screens. This addresses clipped postcode text at larger device font/display scales without changing journey ordering or route calculation. A phone-test APK is delivered through mounted `G:`; the owner checks the result on a physical phone. Never delete or move keystores or signing details.
+
+Phone-test APK: `G:\My Drive\Exdox Debug\Exdox-1.0.30-debug-mileage-postcode-fields-2026-10-07.apk`, SHA-256 `1489ADB76402502623FBED3A45A70D2DA39087A1268FB3E814B6B0C0F0CA53ED`. Built from `C:\b\exdox-mileage-20261007` with `assembleInstallableDebug`; TypeScript, package/version, zip alignment, v2 signature, embedded Hermes bundle match, and mounted-Drive hash readback passed. No emulator or physical-phone layout check was performed.
+
 ## Google sign-in and 14-day trial (2026-10-06)
 
 The Android login screen can sign in with Google through `@react-native-google-signin/google-signin`, using the public web OAuth client ID from the Exdox API. The Register tab asks Business or Sole trader, workspace country, business/trading name, and Terms acceptance before creating a Google account and the shared website/app 14-day plan-free trial. There is no card setup. The signed-in owner sees the trial countdown and a link to website Billing to choose a plan. Existing email/password accounts are not auto-linked to Google; a matching existing email is rejected. Native Google sign-in requires an Android OAuth client for `uk.co.exdox.mobile.debug` and the release package with the relevant signing SHA-1 fingerprints. It also requires the matching server source and its `GOOGLE_WEB_CLIENT_ID` configuration. Build from a short local folder and deliver a verified phone-test APK through mounted `G:`; the owner tests on a phone. Never delete or move the keystore or signing details.
