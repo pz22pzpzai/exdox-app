@@ -1,5 +1,11 @@
 # Exdox Android app
 
+## Workspace refresh on sign-in and reopen (2026-10-07)
+
+`App.tsx` now loads the signed-in user's organisation-scoped local workspace snapshot before starting one server refresh. This fixes a startup race where the late local load could overwrite newly synced receipts and claims, and removes the duplicate login refresh caused by organisation settings loading. Returning from the background starts a full workspace refresh when the previous one began at least five minutes ago; manual Retry and upload-triggered refresh remain available. Logout hides the workspace and invalidates an in-flight refresh, while retaining only that account's scoped local snapshot for immediate display after the next sign-in. Android app removal clears the snapshot, so a reinstall still needs the server refresh. No website or API contract changed.
+
+TypeScript and `git diff --check` passed. `assembleInstallableDebug` built from local `C:\b\exdox-mileage-20261007`; APK package `uk.co.exdox.mobile.debug`, version `1.0.31-debug`/code 32, ZIP alignment, v2 signature, and generated/embedded Hermes bundle hash all passed. Mounted `G:` phone-test copy `G:\My Drive\Exdox Debug\Exdox-1.0.31-debug-sync-on-open-2026-10-07.apk` matched the local SHA-256 `6B10B04A3BFC385B2604174CFF6349CA5CB2A8A92E6171CA772906CC34BA2F04`. No emulator or physical-phone login test was performed. Never delete or move keystores or signing details.
+
 ## Google Play phone screenshots (2026-10-07)
 
 The default en-GB Play Store listing now has eight phone screenshots. The five owner-supplied screenshots are first, in order: current Google/email login, mileage postcode entry and route map, mileage route choices, mileage claim completion, and Reports payment rounds. The previous first login screenshot was removed from the listing; the other three existing screenshots remain in positions 6-8. Copies of the five submitted JPEGs are in `play-store-assets/phone-2026-10-07-{1..5}.jpg`. Play Console saved the change and shows **Changes in review** with quick checks running; public availability is not yet confirmed. This listing-only update does not require an APK or app source build. Never delete or move keystores or signing details.

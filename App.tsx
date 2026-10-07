@@ -88,7 +88,6 @@ import {
   appendStoredDiagnosticLog,
   appendStoredErrorLog,
   buildWorkspaceStateScope,
-  clearScopedStoredState,
   clearStoredDiagnosticLogs,
   clearStoredErrorLogs,
   loadScopedStoredState,
@@ -463,14 +462,6 @@ const setCloudPreviewCacheScope = (userId: number, organisationId: number) => {
   cloudPreviewCacheScope = `user-${userId}-organisation-${organisationId}`;
 };
 
-const clearCloudPreviewCacheScope = async (scope: string) => {
-  const cacheDirectory = FileSystem.cacheDirectory;
-  if (!cacheDirectory) {
-    return;
-  }
-  await FileSystem.deleteAsync(`${cacheDirectory}exdox-receipt-previews/${scope}`, { idempotent: true });
-};
-
 const getCloudPreviewCachePath = (receiptId: number, fileName: string) => {
   const cacheDirectory = FileSystem.cacheDirectory;
   if (!cacheDirectory) {
@@ -542,6 +533,7 @@ const isWorkspaceUnavailableError = (error: unknown) =>
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const cloudSyncTimeoutMs = 20_000;
+const foregroundSyncIntervalMs = 5 * 60_000;
 
 const resolveDocumentAmount = ({
   amount,
@@ -1217,6 +1209,7 @@ export default function App() {
   const [cloudSyncState, setCloudSyncState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle');
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
   const cloudSyncAttemptRef = useRef(0);
+  const lastCloudSyncStartedRef = useRef(0);
   const [errorLogVisible, setErrorLogVisible] = useState(false);
   const [pendingGalleryOpen, setPendingGalleryOpen] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
@@ -1272,7 +1265,6 @@ export default function App() {
       if (mounted) {
         if (savedAuthSession) {
           setSessionToken(savedAuthSession.token);
-          setAuthSession(savedAuthSession);
           setCloudPreviewCacheScope(savedAuthSession.user.id, savedAuthSession.user.organisationId);
           const savedState = await loadScopedStoredState(
             buildWorkspaceStateScope(savedAuthSession.user.id, savedAuthSession.user.organisationId),
@@ -1282,6 +1274,7 @@ export default function App() {
             appStateRef.current = savedState;
             setAppState(savedState);
           }
+          if (mounted) setAuthSession(savedAuthSession);
         }
         setErrorLogs(savedErrorLogs);
         setDiagnosticLogs(savedDiagnosticLogs);
@@ -1327,6 +1320,7 @@ export default function App() {
 
   const syncCloudWorkspace = useEffectEvent(async (session: AuthSession) => {
     const attemptId = ++cloudSyncAttemptRef.current;
+    lastCloudSyncStartedRef.current = Date.now();
     setCloudSyncState('syncing');
     setCloudSyncError(null);
     const timeoutId = setTimeout(() => {
@@ -1506,10 +1500,10 @@ export default function App() {
       buildWorkspaceStateScope(session.user.id, session.user.organisationId),
       String(session.user.id),
     );
-    setAuthSession(session);
     const nextState = savedState ?? seedState;
     appStateRef.current = nextState;
     setAppState(nextState);
+    setAuthSession(session);
     const tutorialSeen = await AsyncStorage.getItem(`exdox-onboarding-v1-${session.user.id}`);
     setTutorialStep(0);
     setTutorialVisible(!tutorialSeen);
@@ -1522,7 +1516,6 @@ export default function App() {
     } catch (error) {
       void recordError('organisation settings', error);
     }
-    await syncCloudWorkspace(session);
   });
 
   const finishTutorial = useEffectEvent(async () => {
@@ -1567,16 +1560,8 @@ export default function App() {
   });
 
   const handleSignOut = useEffectEvent(async () => {
-    const cachedWorkspaceScope = authSession
-      ? buildWorkspaceStateScope(authSession.user.id, authSession.user.organisationId)
-      : null;
-    const previewScope = cloudPreviewCacheScope;
-    if (cachedWorkspaceScope) {
-      await Promise.all([
-        clearScopedStoredState(cachedWorkspaceScope),
-        clearCloudPreviewCacheScope(previewScope),
-      ]).catch(() => undefined);
-    }
+    cloudSyncAttemptRef.current += 1;
+    lastCloudSyncStartedRef.current = 0;
     cloudPreviewCacheScope = 'signed-out';
     setSessionToken(null);
     setAuthSession(null);
@@ -1584,6 +1569,8 @@ export default function App() {
     deletedCloudReceiptIdsRef.current.clear();
     dismissedDecisionIdsRef.current.clear();
     setAppState(seedState);
+    setCloudSyncState('idle');
+    setCloudSyncError(null);
     setSelectedDocumentId(null);
     setActiveTab('costs');
     await clearAuthSession({ preserveBiometric: true });
@@ -2132,7 +2119,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (!authSession) {
+    if (!authSession || !isReady) {
       return;
     }
 
@@ -2150,7 +2137,17 @@ export default function App() {
     }
 
     void syncCloudWorkspace(authSession);
-  }, [appState.organisationSettings, authSession, recordError, syncCloudWorkspace]);
+  }, [authSession, isReady]);
+
+  useEffect(() => {
+    if (!authSession || !isReady) return;
+    const subscription = RNAppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      if (Date.now() - lastCloudSyncStartedRef.current < foregroundSyncIntervalMs) return;
+      void syncCloudWorkspace(authSession);
+    });
+    return () => subscription.remove();
+  }, [authSession, isReady]);
 
   useEffect(() => {
     if (!authSession) return;
