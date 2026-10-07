@@ -1,5 +1,11 @@
 # Exdox Android app
 
+## Google Play release 1.0.31 (2026-10-07)
+
+Production previously had 1.0.30/code 31 active. The Android and Expo metadata are now 1.0.31/code 32. This release includes Google sign-in, Google and email trial registration, Google account-picker retry, and the mileage postcode field layout fix. The signed arm64 release AAB was built from `C:\b\exdox-mileage-20261007`. Its JAR signature verified, upload certificate matched the prior Play AAB, embedded Hermes bundle matched the generated release bundle, and 19 fonts were packaged. Mounted-Drive copy and SHA-256 readback: `G:\My Drive\Exdox Play Releases\Exdox-1.0.31-code32-2026-10-07.aab`, `DBD82EA5B79912ADA6161BD1C1AAB4079D71A14FAEA36BF9EB24534F39E89BA4`.
+
+Play Console accepted code 32 with API 24+, target SDK 36, arm64-v8a, ReTrace mapping and native debug symbols. The Preview and confirm screen showed no lost supported devices, 100% rollout to all currently targeted countries, and release notes about Google sign-in, 14-day trial registration, and the postcode layout. Publishing overview showed **Changes in review** with quick checks running and managed publishing off after submission. Google approval and live availability are not yet confirmed. No emulator or physical-phone release test was performed. Never delete or move keystores or signing details.
+
 ## Mileage postcode field layout (2026-10-07)
 
 The Create mileage claim sheet's ordered postcode rows now give each input at least 40 dp of height, centre its text vertically on Android, and allow the input group to shrink on narrow screens. This addresses clipped postcode text at larger device font/display scales without changing journey ordering or route calculation. A phone-test APK is delivered through mounted `G:`; the owner checks the result on a physical phone. Never delete or move keystores or signing details.
