@@ -1,5 +1,9 @@
 # Exdox Android app
 
+## Google Play phone screenshots (2026-10-07)
+
+The default en-GB Play Store listing now has eight phone screenshots. The five owner-supplied screenshots are first, in order: current Google/email login, mileage postcode entry and route map, mileage route choices, mileage claim completion, and Reports payment rounds. The previous first login screenshot was removed from the listing; the other three existing screenshots remain in positions 6-8. Copies of the five submitted JPEGs are in `play-store-assets/phone-2026-10-07-{1..5}.jpg`. Play Console saved the change and shows **Changes in review** with quick checks running; public availability is not yet confirmed. This listing-only update does not require an APK or app source build. Never delete or move keystores or signing details.
+
 ## Google Play release 1.0.31 (2026-10-07)
 
 Production previously had 1.0.30/code 31 active. The Android and Expo metadata are now 1.0.31/code 32. This release includes Google sign-in, Google and email trial registration, Google account-picker retry, and the mileage postcode field layout fix. The signed arm64 release AAB was built from `C:\b\exdox-mileage-20261007`. Its JAR signature verified, upload certificate matched the prior Play AAB, embedded Hermes bundle matched the generated release bundle, and 19 fonts were packaged. Mounted-Drive copy and SHA-256 readback: `G:\My Drive\Exdox Play Releases\Exdox-1.0.31-code32-2026-10-07.aab`, `DBD82EA5B79912ADA6161BD1C1AAB4079D71A14FAEA36BF9EB24534F39E89BA4`.
