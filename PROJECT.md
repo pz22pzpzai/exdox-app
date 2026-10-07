@@ -1,10 +1,16 @@
 # Exdox Android app
 
+## Google Play release 1.0.32 (2026-10-07)
+
+The owner confirmed the 1.0.31-debug phone-test APK restores workspace items correctly after sign-in. Play release 1.0.32/code 33 carries that `App.tsx` fix with no other behaviour changes. Expo and native Android versions match. The arm64 signed release bundle was built from local `C:\b\exdox-mileage-20261007` with `bundleRelease`; its JAR signature verified, its upload certificate matches the 1.0.31 AAB, its embedded Hermes bundle matches the generated release bundle, and it contains 19 fonts. Mounted-Drive backup `G:\My Drive\Exdox Play Releases\Exdox-1.0.32-code33-sync-on-open-2026-10-07.aab` matched local SHA-256 `4EFB8E86533FCAB501D7CE0B6ABD65DD53AAF80F68F16F1C46AF655D7AF9B5AA`. Play Console submission and public availability are separate checks. Never delete or move keystores or signing details.
+
 ## Workspace refresh on sign-in and reopen (2026-10-07)
 
 `App.tsx` now loads the signed-in user's organisation-scoped local workspace snapshot before starting one server refresh. This fixes a startup race where the late local load could overwrite newly synced receipts and claims, and removes the duplicate login refresh caused by organisation settings loading. Returning from the background starts a full workspace refresh when the previous one began at least five minutes ago; manual Retry and upload-triggered refresh remain available. Logout hides the workspace and invalidates an in-flight refresh, while retaining only that account's scoped local snapshot for immediate display after the next sign-in. Android app removal clears the snapshot, so a reinstall still needs the server refresh. No website or API contract changed.
 
 TypeScript and `git diff --check` passed. `assembleInstallableDebug` built from local `C:\b\exdox-mileage-20261007`; APK package `uk.co.exdox.mobile.debug`, version `1.0.31-debug`/code 32, ZIP alignment, v2 signature, and generated/embedded Hermes bundle hash all passed. Mounted `G:` phone-test copy `G:\My Drive\Exdox Debug\Exdox-1.0.31-debug-sync-on-open-2026-10-07.apk` matched the local SHA-256 `6B10B04A3BFC385B2604174CFF6349CA5CB2A8A92E6171CA772906CC34BA2F04`. No emulator or physical-phone login test was performed. Never delete or move keystores or signing details.
+
+Prevention: when changing session restoration or sync, keep `setAuthSession` after the scoped snapshot load and start the initial workspace refresh only from the session effect, not from settings changes or the login handler. Preserve the account-scoped cache through logout, invalidate any in-flight refresh on logout, and check login, cold start, foreground return, and fresh-install paths. The owner confirmed the phone-test APK fixes the missing-items behaviour. The next Play release is 1.0.32/code 33. Never delete or move keystores or signing details.
 
 ## Google Play phone screenshots (2026-10-07)
 
