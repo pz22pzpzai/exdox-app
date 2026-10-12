@@ -2206,7 +2206,7 @@ export default function App() {
     };
     void openAfterCameraDismissal();
     return () => { cancelled = true; };
-  }, [cameraVisible, pendingGalleryOpen, recordDiagnostic]);
+  }, [cameraVisible, pendingGalleryOpen]);
 
   useEffect(() => {
     const errorUtils = (
