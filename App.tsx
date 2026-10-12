@@ -2185,7 +2185,7 @@ export default function App() {
       setPendingGalleryOpen(false);
       void recordDiagnostic('gallery', 'Camera closed, opening gallery picker');
       void openGalleryPicker();
-    }, 180);
+    }, 500);
 
     return () => clearTimeout(timeoutId);
   }, [cameraVisible, pendingGalleryOpen, recordDiagnostic]);
@@ -2804,15 +2804,15 @@ export default function App() {
   };
 
   const handlePickImage = async () => {
-    await recordDiagnostic('gallery', `handlePickImage start | cameraVisible=${cameraVisible ? 'yes' : 'no'}`);
     setCaptureModalVisible(false);
     if (cameraVisible) {
       setPendingGalleryOpen(true);
-      await recordDiagnostic('gallery', 'Closing camera before opening gallery');
       setCameraVisible(false);
+      void recordDiagnostic('gallery', 'Closing camera before opening gallery');
       return;
     }
 
+    await recordDiagnostic('gallery', 'Opening gallery from capture actions');
     await openGalleryPicker();
   };
 
@@ -3841,10 +3841,7 @@ export default function App() {
             setCaptureType(nextType);
             setActiveTab(nextType === 'invoice' ? 'sales' : 'costs');
           }}
-          onUseGallery={() => {
-            setCameraVisible(false);
-            void handlePickImage();
-          }}
+          onUseGallery={() => void handlePickImage()}
           onUsePdf={() => {
             setCameraVisible(false);
             void handlePickPdf();

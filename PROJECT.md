@@ -1,5 +1,9 @@
 # Exdox Android app
 
+## Camera gallery shortcut (2026-10-12)
+
+The gallery icon inside the camera now calls the same `handlePickImage` import path as **Choose from gallery** in the upload menu. The camera path marks the picker as pending before closing the camera, then waits 500 ms for the Android slide modal to dismiss before opening the existing multi-image system picker. The working upload-menu shortcut and its selected-image handling remain intact. TypeScript, `git diff --check`, and a fresh local `assembleInstallableDebug` build passed. APK package/version `uk.co.exdox.mobile.debug` / `1.0.32-debug` (code 33), ZIP alignment, v2 signature, generated/embedded Hermes bundle match, and mounted-Drive SHA-256 readback passed. Phone-test APK: `G:\My Drive\Exdox Debug\Exdox-1.0.32-debug-camera-gallery-2026-10-12.apk`, SHA-256 `A79766B3D74251F2D00B0F3325A594EE82AE4F22F2F6732C38B7DCE9A8928987`. No emulator or physical-phone interaction was performed; the owner tests both shortcuts on a phone. Never delete or move keystores or signing details.
+
 ## Google Play release 1.0.32 (2026-10-07)
 
 The owner confirmed the 1.0.31-debug phone-test APK restores workspace items correctly after sign-in. Play release 1.0.32/code 33 carries that `App.tsx` fix with no other behaviour changes. Expo and native Android versions match. The arm64 signed release bundle was built from local `C:\b\exdox-mileage-20261007` with `bundleRelease`; its JAR signature verified, its upload certificate matches the 1.0.31 AAB, its embedded Hermes bundle matches the generated release bundle, and it contains 19 fonts. Mounted-Drive backup `G:\My Drive\Exdox Play Releases\Exdox-1.0.32-code33-sync-on-open-2026-10-07.aab` matched local SHA-256 `4EFB8E86533FCAB501D7CE0B6ABD65DD53AAF80F68F16F1C46AF655D7AF9B5AA`. Never delete or move keystores or signing details.
