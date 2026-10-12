@@ -167,7 +167,7 @@ type NativeGalleryAsset = {
 };
 
 const NativeGalleryPicker = NativeModules.NativeGalleryPicker as
-  | { open: () => Promise<NativeGalleryAsset | null> }
+  | { open: () => Promise<NativeGalleryAsset | null>; awaitHostWindowFocus: () => Promise<void> }
   | undefined;
 
 type GallerySelectionMode = 'multiple_documents' | 'combined_document';
@@ -2181,13 +2181,31 @@ export default function App() {
       return;
     }
 
-    const timeoutId = setTimeout(() => {
-      setPendingGalleryOpen(false);
-      void recordDiagnostic('gallery', 'Camera closed, opening gallery picker');
-      void openGalleryPicker();
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
+    let cancelled = false;
+    const openAfterCameraDismissal = async () => {
+      try {
+        if (Platform.OS === 'android') {
+          if (!NativeGalleryPicker?.awaitHostWindowFocus) {
+            throw new Error('Android gallery focus check is unavailable.');
+          }
+          await recordDiagnostic('gallery', 'Waiting for the camera window to close');
+          await NativeGalleryPicker.awaitHostWindowFocus();
+        } else {
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        }
+        if (cancelled) return;
+        setPendingGalleryOpen(false);
+        await recordDiagnostic('gallery', 'App window focused, opening gallery picker');
+        await openGalleryPicker();
+      } catch (error) {
+        if (cancelled) return;
+        setPendingGalleryOpen(false);
+        void recordError('camera gallery handoff', error);
+        Alert.alert('Gallery unavailable', 'Please try again or use Choose from gallery from the upload menu.');
+      }
+    };
+    void openAfterCameraDismissal();
+    return () => { cancelled = true; };
   }, [cameraVisible, pendingGalleryOpen, recordDiagnostic]);
 
   useEffect(() => {

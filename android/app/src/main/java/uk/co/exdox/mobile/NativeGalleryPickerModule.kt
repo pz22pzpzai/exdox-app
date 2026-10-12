@@ -3,6 +3,9 @@ package uk.co.exdox.mobile
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.provider.MediaStore
 import com.facebook.react.bridge.ActivityEventListener
@@ -58,6 +61,36 @@ class NativeGalleryPickerModule(private val reactContext: ReactApplicationContex
   }
 
   override fun getName(): String = "NativeGalleryPicker"
+
+  @ReactMethod
+  fun awaitHostWindowFocus(promise: Promise) {
+    val handler = Handler(Looper.getMainLooper())
+    val startedAt = SystemClock.uptimeMillis()
+    var focusedSince = 0L
+    val checkFocus = object : Runnable {
+      override fun run() {
+        val now = SystemClock.uptimeMillis()
+        val activity = reactApplicationContext.currentActivity
+        val hasFocus = activity != null && !activity.isFinishing &&
+          !activity.isDestroyed && activity.window.decorView.hasWindowFocus()
+        if (hasFocus) {
+          if (focusedSince == 0L) focusedSince = now
+          if (now - focusedSince >= 150L) {
+            promise.resolve(null)
+            return
+          }
+        } else {
+          focusedSince = 0L
+        }
+        if (now - startedAt >= 5000L) {
+          promise.reject("HOST_WINDOW_NOT_FOCUSED", "The camera window did not finish closing.")
+          return
+        }
+        handler.postDelayed(this, 50L)
+      }
+    }
+    handler.post(checkFocus)
+  }
 
   @ReactMethod
   fun open(promise: Promise) {
